@@ -11,9 +11,7 @@ It runs on a cheap ESP8266 "smart weather clock" from AliExpress. You don't need
 <p align="center">
   <img src="docs/media/cover.png" alt="Claude Code Desk Clock">
 </p>
-<p align="center">
-  <img src="docs/media/demo.gif" width="720" alt="Mascot animations">
-</p>
+https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 
 > Unofficial fan project. Not affiliated with, endorsed by or supported by Anthropic.
 > "Claude" and "Claude Code" are trademarks of Anthropic, PBC.

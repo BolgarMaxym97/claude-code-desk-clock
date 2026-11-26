@@ -11,9 +11,7 @@
 <p align="center">
   <img src="docs/media/cover.png" alt="Claude Code Desk Clock">
 </p>
-<p align="center">
-  <img src="docs/media/demo.gif" width="720" alt="Анімації маскота">
-</p>
+https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 
 > Неофіційний фанатський проєкт. Не пов'язаний з Anthropic і не підтримується нею.
 > «Claude» і «Claude Code» є торговими марками Anthropic, PBC.
