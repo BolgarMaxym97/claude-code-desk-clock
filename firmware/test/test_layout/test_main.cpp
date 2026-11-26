@@ -110,6 +110,9 @@ void test_gauge_label_chip_and_rows() {  // drawGauge(): label on a chip at the 
     TEST_ASSERT_INT_WITHIN_MESSAGE(1, lay::CHIP_Y, 240 - (lay::PCT_CHIP_Y + lay::CHIP_H), "chips not symmetric");
     TEST_ASSERT_TRUE_MESSAGE(lay::TOP_L <= 8 && lay::TOP_R >= 232, "top row does not use the full width");
     TEST_ASSERT_TRUE_MESSAGE(13 + lay::CHIP_SHIFT - lay::CHIP_W / 2 >= 0, "chip leaves the screen");
+    // the content column [CL, CR) is cleared on every redraw (time, work lines): the chips must stay outside it
+    TEST_ASSERT_TRUE_MESSAGE(13 + lay::CHIP_SHIFT - lay::CHIP_W / 2 + lay::CHIP_W <= lay::CL, "left chip reaches into the column");
+    TEST_ASSERT_TRUE_MESSAGE(227 - lay::CHIP_SHIFT - lay::CHIP_W / 2 >= lay::CR, "right chip reaches into the column");
     TEST_ASSERT_TRUE_MESSAGE(lay::CHIP_Y + lay::CHIP_H + 4 <= lay::GAUGE_TOP, "bar starts at the chip");
     Box pct = ink(F_LIM, "100", lay::PCT_BASE, BASELINE);
     Box tim = ink(F_S3, "4:59 23г 45хв 6д 0хв", lay::TIMER_BASE, BASELINE);
@@ -117,6 +120,11 @@ void test_gauge_label_chip_and_rows() {  // drawGauge(): label on a chip at the 
     const int pcTop = lay::PCT_CHIP_Y, pcBottom = lay::PCT_CHIP_Y + lay::CHIP_H;
     TEST_ASSERT_TRUE_MESSAGE(pct.top >= pcTop + 1 && pct.bottom <= pcBottom - 1, "percent leaves its chip");
     TEST_ASSERT_TRUE_MESSAGE(advance(F_LIM, "100") + 2 <= lay::CHIP_W, "100 wider than its chip");
+    // text sits in the middle of its chip: same gap above and below, both chips; same gap chip-bar at both ends
+    TEST_ASSERT_EQUAL_MESSAGE(lab.top - lay::CHIP_Y, lay::CHIP_Y + lay::CHIP_H - lab.bottom, "label not centred in its chip");
+    TEST_ASSERT_EQUAL_MESSAGE(pct.top - pcTop, pcBottom - pct.bottom, "percent not centred in its chip");
+    TEST_ASSERT_EQUAL_MESSAGE(lay::CHIP_Y, 240 - pcBottom, "chips not symmetric");
+    TEST_ASSERT_EQUAL_MESSAGE(lay::GAUGE_TOP - (lay::CHIP_Y + lay::CHIP_H), pcTop - lay::GAUGE_BOTTOM, "bar gaps differ");
     TEST_ASSERT_TRUE_MESSAGE(lay::GAUGE_BOTTOM + 3 <= pcTop, "bar touches the percent chip");
     TEST_ASSERT_TRUE_MESSAGE(pcBottom + 2 <= tim.top, "percent chip touches the timer");
     TEST_ASSERT_TRUE_MESSAGE(tim.bottom <= 240, "timer off screen");

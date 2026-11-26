@@ -53,12 +53,12 @@ namespace lay {
 constexpr int CL = 28, CR = 212, CX = 120;     // content column between the gauges
 constexpr int TOP_BASE = 20, BOTTOM_BASE = 230; // shared text baselines
 // Both gauges: label (5h, 7d) on a chip at the top, then the bar (same length always), then % and time to reset.
-constexpr int CHIP_Y = 26, CHIP_H = 19, CHIP_W = 28, CHIP_SHIFT = 1;  // both chips (label, percent): same size, 1 px inwards;
+constexpr int CHIP_Y = 26, CHIP_H = 20, CHIP_W = 28, CHIP_SHIFT = 1;  // both chips (label, percent): same size, 1 px inwards;
 constexpr int LABEL_BASE = 41;                                       // label chip under the top row, as far from the top as the % chip from the bottom
 constexpr int TOP_L = 6, TOP_R = 234, DOT_STEP = 11;
 constexpr int TOPROW_BASE = 16;  // time / date / session dots: a little higher than the setup-screen titles (TOP_BASE)                                 // the top row spans the whole width
-constexpr int GAUGE_TOP = 49, GAUGE_BOTTOM = 191, GAUGE_W = 8;
-constexpr int PCT_CHIP_Y = 195, PCT_BASE = 210;  // percent on its own chip, like the label
+constexpr int GAUGE_TOP = 50, GAUGE_BOTTOM = 190, GAUGE_W = 8;
+constexpr int PCT_CHIP_Y = 194, PCT_BASE = 209;  // percent on its own chip, like the label
 constexpr int TIMER_BASE = 231;
 constexpr int TIMER_HALF = 16, TIMER_SHIFT = 3;  // timer row: up to 32 px, centred 3 px inwards (screen bottom is free there)
 constexpr int HERO_X = CL, HERO_Y = 44, HERO_W = 184, HERO_H = 60, HERO_PX = 6;

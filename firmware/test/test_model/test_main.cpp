@@ -54,8 +54,8 @@ void test_event_state_mapping() {
     TEST_ASSERT_EQUAL(int(SState::Compacting), int(m.find("s1")->state));
     m.onEvent(ev("s1", Ev::NotifyPermission, "Bash", "git push"), 3000);
     TEST_ASSERT_EQUAL(int(SState::Permission), int(m.find("s1")->state));
-    m.onEvent(ev("s1", Ev::NotifyIdle), 4000);
-    TEST_ASSERT_EQUAL(int(SState::YourTurn), int(m.find("s1")->state));
+    m.onEvent(ev("s1", Ev::NotifyIdle), 4000);  // "waiting for your input" after every answer: ignored
+    TEST_ASSERT_EQUAL(int(SState::Permission), int(m.find("s1")->state));
     m.onEvent(ev("s1", Ev::StopFailure), 5000);
     TEST_ASSERT_EQUAL(int(SState::Error), int(m.find("s1")->state));
 }
@@ -168,10 +168,14 @@ void test_thinking_and_compacting_are_working() {
     TEST_ASSERT_EQUAL(int(Screen::Working), int(m.view(2000, day()).screen));
 }
 
-void test_your_turn_and_error() {
+void test_idle_notification_is_ignored_and_error_shows() {
     Model m;
-    m.onEvent(ev("a", Ev::NotifyIdle), 1000);
-    TEST_ASSERT_EQUAL(int(Screen::YourTurn), int(m.view(2000, day()).screen));
+    m.onEvent(ev("a", Ev::UserPromptSubmit), 0);
+    m.onEvent(ev("a", Ev::Stop), 1000);
+    m.onEvent(ev("a", Ev::NotifyIdle), 61000);  // Claude Code: "waiting for your input" a minute later
+    TEST_ASSERT_EQUAL(int(SState::Idle), int(m.find("a")->state));
+    TEST_ASSERT_EQUAL(int(Screen::Clock), int(m.view(62000, day()).screen));
+    TEST_ASSERT_EQUAL(60000u, m.quietMs(61000));  // not activity either
     m.onEvent(ev("a", Ev::StopFailure), 3000);
     TEST_ASSERT_EQUAL(int(Screen::Error), int(m.view(4000, day()).screen));
 }
@@ -219,12 +223,12 @@ void test_working_shows_at_night_dimmed() {
     TEST_ASSERT_EQUAL(20, int(v.brightness));
 }
 
-void test_night_idle_sleeps_but_your_turn_wakes() {
+void test_night_idle_sleeps_and_idle_notification_does_not_wake() {
     Model m;
     m.onEvent(ev("a", Ev::SessionStart), 0);
     TEST_ASSERT_EQUAL(int(Screen::Sleep), int(m.view(5000, night()).screen));
     m.onEvent(ev("a", Ev::NotifyIdle), 6000);
-    TEST_ASSERT_EQUAL(int(Screen::YourTurn), int(m.view(7000, night()).screen));
+    TEST_ASSERT_EQUAL(int(Screen::Sleep), int(m.view(7000, night()).screen));
 }
 
 void test_day_brightness_80() {
@@ -478,7 +482,7 @@ int main() {
     RUN_TEST(test_permission_wins_over_other_working_session);
     RUN_TEST(test_two_working_is_multi_one_is_working);
     RUN_TEST(test_thinking_and_compacting_are_working);
-    RUN_TEST(test_your_turn_and_error);
+    RUN_TEST(test_idle_notification_is_ignored_and_error_shows);
     RUN_TEST(test_done_for_6s_then_clock);
     RUN_TEST(test_hello_for_3s);
     RUN_TEST(test_day_stays_awake_until_an_hour_without_mac);
@@ -489,7 +493,7 @@ int main() {
     RUN_TEST(test_bash_reactions_from_target_text);
     RUN_TEST(test_model_remembers_reaction_tool_time_and_edits);
     RUN_TEST(test_working_shows_at_night_dimmed);
-    RUN_TEST(test_night_idle_sleeps_but_your_turn_wakes);
+    RUN_TEST(test_night_idle_sleeps_and_idle_notification_does_not_wake);
     RUN_TEST(test_day_brightness_80);
     RUN_TEST(test_unsynced_time_is_not_night);
     RUN_TEST(test_unsynced_boot_replaces_idle_screens_only);

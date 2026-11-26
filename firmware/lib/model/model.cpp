@@ -74,6 +74,9 @@ ClaudeSession &Model::create(const std::string &id, uint32_t nowMs) {
 
 void Model::onEvent(const EventIn &e, uint32_t nowMs) {
     if (e.ev == Ev::Unknown || e.session.empty()) return;
+    // Claude Code sends "waiting for your input" a minute after every answer, question or not: not a reason
+    // to take over the clock (or wake it at night). Real requests come as permission notifications.
+    if (e.ev == Ev::NotifyIdle) return;
     silent_ = false;
     if (everEvent_ && nowMs - lastEventMs_ >= BORED_MS) { greetSeen_ = true; greetAtMs_ = nowMs; }  // you're back
     everEvent_ = true;

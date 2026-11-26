@@ -169,6 +169,10 @@ IdlePose IdleDirector::pose(uint32_t t, int minute, bool tired) {
             act_ = IdleAct::Rest;
             start_ = t;
             end_ = t + range(GAP_MIN, GAP_MAX);
+        } else if (act_ == IdleAct::ClockLook) {  // a glance at the clock: back to the rest it interrupted
+            act_ = IdleAct::Rest;
+            start_ = t;
+            end_ = resumeEnd_ > t ? resumeEnd_ : t;
         } else {
             pendingReplay_ = false;
             rest(t);
@@ -194,6 +198,7 @@ IdlePose IdleDirector::pose(uint32_t t, int minute, bool tired) {
         pendingReplay_ = false;
     } else if (act_ == IdleAct::Rest) {
         if (newMinute) {
+            resumeEnd_ = end_;  // the glance must not restart the 1.5-4 min pause
             act_ = IdleAct::ClockLook;
             start_ = t;
             end_ = t + duration(act_);

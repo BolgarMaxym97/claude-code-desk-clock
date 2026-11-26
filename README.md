@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 ## What it shows
 
 - **What Claude is doing right now**: Bash, editing, reading, searching, sub-agents, a permission request,
-  "your turn", an error or done. It also shows the file or command and the project.
+  an error or done. It also shows the file or command and the project.
 - **Several sessions at once**, from one or more computers.
 - **Usage limits**: two vertical gauges (5 h and 7 d). From 70% up, each gauge also shows the time until reset
   and a pace mark.

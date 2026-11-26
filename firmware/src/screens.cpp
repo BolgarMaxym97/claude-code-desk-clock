@@ -160,7 +160,7 @@ static void line(int slot, int y, int h, const uint8_t *font, const String &s, u
     String key = s + "|" + String(c);
     if (lineCache[slot] == key) return;
     lineCache[slot] = key;
-    tft.fillRect(lay::CL - 2, y - 2, lay::CR - lay::CL + 4, h, col::BG);
+    tft.fillRect(lay::CL, y - 2, lay::CR - lay::CL, h, col::BG);  // exactly the column: the gauge chips start right next to it
     if (s.length()) text(font, fitText(font, s, lay::CR - lay::CL - 4), lay::CX, y, c, col::BG, TC_DATUM);
 }
 
@@ -231,7 +231,7 @@ static void drawMulti(const Model &m) {
     for (int i = 0; i < n; i++) key += S(rows[i]->id) + int(rows[i]->state) + ";";
     if (key == lineCache[0]) return;
     lineCache[0] = key;
-    tft.fillRect(lay::CL - 2, 30, lay::CR - lay::CL + 4, 170, col::BG);
+    tft.fillRect(lay::CL, 30, lay::CR - lay::CL, 170, col::BG);
     for (int i = 0; i < n; i++) {
         const ClaudeSession *s = rows[i];
         int y = 36 + i * 54;
@@ -256,7 +256,7 @@ static void drawClockTime(const LocalTime &lt, uint32_t now, bool sleep) {
         text(F_TIME_S, hhmm(lt), lay::CX, lay::SLEEP_TIME_Y, col::SLEEP_INK, TFT_BLACK, TC_DATUM, false);
         if (lt.synced) text(F_TOP, dateShort(lt), lay::CX, lay::SLEEP_DATE_Y, col::SLEEP_INK, TFT_BLACK, TC_DATUM, false);
     } else {
-        tft.fillRect(lay::CL - 2, lay::TIME_CLEAR_TOP, lay::CR - lay::CL + 4, lay::STAGE_Y - lay::TIME_CLEAR_TOP, col::BG);
+        tft.fillRect(lay::CL, lay::TIME_CLEAR_TOP, lay::CR - lay::CL, lay::STAGE_Y - lay::TIME_CLEAR_TOP, col::BG);
         text(F_TIME_S, hhmm(lt), lay::CX, lay::TIME_Y, col::INK, col::BG, TC_DATUM, false);
     }
 }
@@ -500,7 +500,6 @@ struct SpriteCanvas : Canvas {
 // New Year scenery behind the mascot: snow, a drift at the bottom, a small tree with a blinking garland.
 static void drawWinter(uint32_t t, bool resting) {
     uint32_t tl = resting ? t / 12 : t;  // garland: slow twinkle at rest
-    if (resting) t = 0;                  // snow stands still while the mascot rests
     Dot d[12];
     int n = snowFlakes(t, d, 12);
     for (int i = 0; i < n; i++) {
@@ -529,7 +528,7 @@ static void drawStage(const IdlePose &p, uint8_t body, bool hat, bool winter = f
     if (winter) drawWinter(t, resting);
     else if (month) {
         SpriteCanvas sc(stage, lay::CL, lay::STAGE_Y);
-        seasonLayer(sc, month, t, !resting);
+        seasonLayer(sc, month, t, true);  // the season keeps moving while the mascot rests
     }
     if (p.fx & FX_FIREWORK) {
         static const uint8_t FC[] = {P_STAR, P_APPLE, P_SWEAT};

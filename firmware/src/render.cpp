@@ -36,6 +36,14 @@ void drawTopBar(const String &left, int busy, int total, uint16_t dotCol) {
     }
 }
 
+// Chip with pixel-exact, identical corners on all four sides (fillSmoothRoundRect draws the bottom corners
+// differently from the top ones at this size).
+static void chip(int x, int y, int w, int h, uint16_t c) {
+    tft.fillRect(x + 2, y, w - 4, h, c);
+    tft.fillRect(x + 1, y + 1, w - 2, h - 2, c);
+    tft.fillRect(x, y + 2, w, h - 4, c);
+}
+
 static int barX(int cx) { return (cx < 120 ? cx + lay::CHIP_SHIFT : cx - lay::CHIP_SHIFT) - lay::GAUGE_W / 2; }
 
 void drawGaugeBar(int cx, int pct, bool warn, bool stale, int pace, bool full) {
@@ -52,14 +60,14 @@ void drawGauge(int cx, const char *label, int pct, int shownPct, bool warn, bool
     tft.fillRect(cx - 13, lay::CHIP_Y, 26, 240 - lay::CHIP_Y, col::BG);  // the top row above belongs to drawTopBar
     int chx = cx < 120 ? cx + lay::CHIP_SHIFT : cx - lay::CHIP_SHIFT;  // chips and bar share this centre
     tft.fillRect(chx - lay::CHIP_W / 2, lay::CHIP_Y, lay::CHIP_W, lay::CHIP_H, col::BG);
-    tft.fillSmoothRoundRect(chx - lay::CHIP_W / 2, lay::CHIP_Y, lay::CHIP_W, lay::CHIP_H, 5, col::CHIP, col::BG);
-    text(F_LIM, label, chx, lay::LABEL_BASE, stale ? col::DIM : (warn ? col::PINK : col::INK), col::CHIP, C_BASELINE);
+    chip(chx - lay::CHIP_W / 2, lay::CHIP_Y, lay::CHIP_W, lay::CHIP_H, col::CHIP);
+    text(F_LIM, label, chx, lay::LABEL_BASE, stale ? col::DIM : (warn ? col::PINK : col::INK), col::CHIP, C_BASELINE, false);  // no box fill: it would stick out of the chip
     drawGaugeBar(cx, shownPct, warn, stale, pace, true);
     int tx = cx < 120 ? cx + lay::TIMER_SHIFT : cx - lay::TIMER_SHIFT;  // a bit inwards: "45хв" / "100" are wider than the column
     uint16_t chipC = warn && !stale ? col::CHIP_WARN : col::CHIP;
     tft.fillRect(tx - lay::TIMER_HALF, lay::PCT_CHIP_Y, 2 * lay::TIMER_HALF, lay::CHIP_H, col::BG);
-    tft.fillSmoothRoundRect(chx - lay::CHIP_W / 2, lay::PCT_CHIP_Y, lay::CHIP_W, lay::CHIP_H, 5, chipC, col::BG);
-    text(F_LIM, String(pct), chx, lay::PCT_BASE, warn && !stale ? col::INK : textC, chipC, C_BASELINE);
+    chip(chx - lay::CHIP_W / 2, lay::PCT_CHIP_Y, lay::CHIP_W, lay::CHIP_H, chipC);
+    text(F_LIM, String(pct), chx, lay::PCT_BASE, warn && !stale ? col::INK : textC, chipC, C_BASELINE, false);
     tft.fillRect(tx - lay::TIMER_HALF, lay::TIMER_BASE - 13, 2 * lay::TIMER_HALF, 16, col::BG);
     if (timer && *timer) text(F_S3, timer, tx, lay::TIMER_BASE, stale ? col::DIM : col::MUTED, col::BG, C_BASELINE);  // quiet
 }

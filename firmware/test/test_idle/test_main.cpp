@@ -110,6 +110,21 @@ void test_minute_change_while_resting_looks_at_clock() {
     TEST_ASSERT_TRUE(p.frame == &SPR_UP);
 }
 
+void test_minute_glances_do_not_postpone_the_next_action() {
+    for (uint32_t seed = 1; seed < 20; seed++) {
+        IdleDirector d(seed);
+        const uint32_t perMin = 60000 / IDLE_TICK_MS;
+        uint32_t t = 0;
+        bool acted = false;
+        for (; t < 10 * perMin && !acted; t++) {  // wall clock runs: the minute changes every 60 s (not at :00)
+            d.pose(t, 1 + int(t / perMin), false);
+            acted = d.act() != IdleAct::Rest && d.act() != IdleAct::ClockLook;
+        }
+        TEST_ASSERT_TRUE_MESSAGE(acted, "only clock glances for 10 minutes");
+        TEST_ASSERT_TRUE_MESSAGE(t * IDLE_TICK_MS <= 245000, "first action later than 4 min");
+    }
+}
+
 void test_tired_rests_drowsy_with_sweat_and_only_calm_actions() {
     IdleDirector d(11);
     bool sweat = false;
@@ -401,6 +416,7 @@ int main() {
     RUN_TEST(test_first_action_starts_after_1_5_to_4_minutes);
     RUN_TEST(test_all_chosen_actions_occur_and_never_repeat_back_to_back);
     RUN_TEST(test_minute_change_while_resting_looks_at_clock);
+    RUN_TEST(test_minute_glances_do_not_postpone_the_next_action);
     RUN_TEST(test_tired_rests_drowsy_with_sweat_and_only_calm_actions);
     RUN_TEST(test_poses_stay_inside_the_stage);
     RUN_TEST(test_eating_apple_shrinks_to_nothing_then_happy);

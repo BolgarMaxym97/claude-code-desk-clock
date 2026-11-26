@@ -64,6 +64,7 @@ class IdleDirector {
     void replay(uint32_t t);
     int replays_ = 0;              // replays left of the current action (each action plays PLAYS times)
     bool pendingReplay_ = false;   // resting in the short gap before a replay
+    uint32_t resumeEnd_ = 0;       // end of the rest a clock glance interrupted
     uint32_t nextBlink_ = 0, blinkUntil_ = 0;  // irregular blinking (2-6 s, sometimes double)
     int rareDay_ = -1;             // date key of today's surprise (at most one a day)
 };
