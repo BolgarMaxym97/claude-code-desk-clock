@@ -220,6 +220,54 @@ void test_today_survives_a_restart_through_a_snapshot() {
     TEST_ASSERT_TRUE(d.card(0, DAY + 1).line1.empty());  // restored yesterday: not shown today
 }
 
+static const uint32_t E0 = 1795680000;  // an epoch (seconds) for the meeting tests
+
+void test_meeting_in_rotation_then_pinned_blue_then_now() {
+    Info in;
+    in.onWeather(WeatherNow{803, 3, 5, 1, false}, 0);
+    Meeting ms[] = {{E0 + 3 * 3600, E0 + 4 * 3600, "Planning", "14:00"}, {E0 + 5 * 3600, E0 + 6 * 3600, "", "16:00"}};
+    in.onMeetings(ms, 2);
+    // 3 h ahead: one more item in the rotation, "At 14:00"
+    Info::Card c = in.card(5000, DAY, E0);
+    TEST_ASSERT_EQUAL(2, c.items);
+    TEST_ASSERT_EQUAL(int(InfoIcon::Calendar), int(c.icon));
+    TEST_ASSERT_EQUAL_STRING("At 14:00", c.line1.c_str());
+    TEST_ASSERT_EQUAL_STRING("Planning", c.line2.c_str());
+    TEST_ASSERT_EQUAL(0, c.tone);
+    // 40 min ahead: "In 40m"
+    TEST_ASSERT_EQUAL_STRING("In 40m", in.card(5000, DAY, E0 + 3 * 3600 - 40 * 60).line1.c_str());
+    // 8 min ahead (7:50 rounds up): pinned, blue, no dots
+    c = in.card(0, DAY, E0 + 3 * 3600 - 470);
+    TEST_ASSERT_EQUAL_STRING("In 8m", c.line1.c_str());
+    TEST_ASSERT_EQUAL(3, c.tone);
+    TEST_ASSERT_EQUAL(0, c.items);
+    TEST_ASSERT_EQUAL(8, in.meetingSoonMin(E0 + 3 * 3600 - 470));
+    TEST_ASSERT_EQUAL(-1, in.meetingSoonMin(E0 + 3 * 3600 - 700));
+    // during the meeting
+    c = in.card(0, DAY, E0 + 3 * 3600 + 35 * 60);
+    TEST_ASSERT_EQUAL_STRING("Now · 25m left", c.line1.c_str());
+    TEST_ASSERT_EQUAL(3, c.tone);
+    TEST_ASSERT_TRUE(in.inMeeting(E0 + 3 * 3600 + 35 * 60));
+    // after it the next one, untitled
+    setLang(Lang::Uk);
+    c = in.card(5000, DAY, E0 + 4 * 3600 + 60);
+    TEST_ASSERT_EQUAL_STRING("Через 59хв", c.line1.c_str());
+    TEST_ASSERT_EQUAL_STRING("Зустріч", c.line2.c_str());
+    // all over: back to weather only
+    TEST_ASSERT_EQUAL(1, in.card(5000, DAY, E0 + 7 * 3600).items);
+    TEST_ASSERT_FALSE(in.inMeeting(0));  // time not known yet
+}
+
+void test_alert_wins_over_a_meeting() {
+    Info in;
+    Meeting m{E0, E0 + 3600, "Sync", "10:00"};
+    in.onMeetings(&m, 1);
+    in.onAlert(true, 0);
+    TEST_ASSERT_EQUAL(2, in.card(1000, DAY, E0 + 60).tone);
+    in.onMeetings(nullptr, 0);  // calendar switched off
+    TEST_ASSERT_FALSE(in.inMeeting(E0 + 60));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_owm_parses_id_temp_wind);
@@ -233,6 +281,8 @@ int main() {
     RUN_TEST(test_busy_gap_after_a_pause_is_not_counted);
     RUN_TEST(test_card_rotates_with_dots);
     RUN_TEST(test_today_survives_a_restart_through_a_snapshot);
+    RUN_TEST(test_meeting_in_rotation_then_pinned_blue_then_now);
+    RUN_TEST(test_alert_wins_over_a_meeting);
     RUN_TEST(test_alert_takes_the_card_and_counts_minutes);
     RUN_TEST(test_alert_end_feeds_the_all_clear_scene_for_10_min);
     RUN_TEST(test_alert_level_from_the_mac_overrides_for_3_min);

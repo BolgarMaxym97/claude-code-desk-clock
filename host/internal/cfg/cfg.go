@@ -17,6 +17,11 @@ type Config struct {
 	Host  string `json:"host,omitempty"` // mDNS name used to find the clock again if its IP changes
 	Token string `json:"token"`
 	OWM   string `json:"owm,omitempty"` // OpenWeather key, for city look-ups (the clock has its own copy)
+	// Calendar: secret iCal address (never sent to the clock), the user's email in it (hides declined meetings),
+	// and whether meeting titles stay off the clock.
+	Calendar    string `json:"calendar,omitempty"`
+	CalEmail    string `json:"calendar_email,omitempty"`
+	CalNoTitles bool   `json:"calendar_no_titles,omitempty"`
 }
 
 // Dir: $CLOCK_CONFIG_DIR, else %APPDATA%\claude-clock (Windows) or $XDG_CONFIG_HOME|~/.config/claude-clock.

@@ -26,7 +26,8 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
   and a pace mark.
 - **Time and date** (synced over the internet), and a calm screen at night.
 - **Optional info line** under the mascot, changing every 5 s: the **weather** (your own free OpenWeather key, with an icon)
-  and **today with Claude**: how long Claude worked, how many answers and commits. For Ukraine, an **air-raid alert** for your region takes over
+  and **today with Claude**: how long Claude worked, how many answers and commits. With your calendar connected, the
+  **next meeting** joins in; 10 minutes before it the line turns blue and stays. For Ukraine, an **air-raid alert** for your region takes over
   the line in red and wakes the clock (dimmed) at night. Each one can be switched off.
 - **Mascot animations**: daily scenes, weather and time-of-day events, holidays, rare surprises,
   and a Santa hat from Dec 25 to Jan 7.
@@ -94,6 +95,9 @@ To add another computer, run the same line there. Each computer gets its own cod
 | `claude-clock config --tz auto` | Send this computer's timezone to the clock (done at setup) |
 | `claude-clock config --weather-key <key>` | Weather on the clock: a free key from [openweathermap.org](https://openweathermap.org/api) (`off` to remove). New keys start working after up to 2 hours |
 | `claude-clock config --city Kyiv` | Weather location: a city name or `50.45,30.52` |
+| `claude-clock config --calendar <address>` | Next meeting on the clock: your calendar's secret address in iCal format (Google Calendar: calendar settings, "Integrate calendar"; Outlook: "Publish a calendar", ICS link). `off` to remove |
+| `claude-clock config --calendar-email you@work.com` | Hide meetings you declined |
+| `claude-clock config --calendar-titles off` | Show "Meeting" instead of meeting titles |
 | `claude-clock config --alerts "м. Київ"` | Air-raid alerts (Ukraine) for a region; `list` shows all regions, `off` switches alerts off |
 | `claude-clock setup` | Pair again (new clock, new IP, new computer) |
 | `claude-clock uninstall` | Remove the hooks and restore your own statusline |
@@ -128,6 +132,9 @@ If the clock cannot reach its network for about 2–3 minutes, it shows the QR c
     (the command itself is checked on your computer).
 
   Nothing else from Claude Code is read or stored.
+- **Calendar**: the secret address stays in `claude-clock`'s config on your computer and is never sent to the clock.
+  While Claude Code runs, `claude-clock` reads the calendar every 5 minutes and sends the clock the next meetings of the
+  coming 12 hours: start, end and title (titles can be switched off).
 - **Weather and alerts** are fetched by the clock itself, over plain HTTP (the chip has no TLS):
   `api.openweathermap.org` with your key and location, `ubilling.net.ua/aerialalerts` with no data from you.
   The alert data is informational: follow official sources. The OpenWeather key is stored on the clock and in

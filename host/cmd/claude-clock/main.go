@@ -81,6 +81,7 @@ func usage() {
   claude-clock update [--file firmware.bin]        install the latest clock firmware from GitHub
   claude-clock config --lang en|uk | --tz auto|<IANA name> | --birthday MM-DD|off
   claude-clock config --weather-key <key>|off | --city <name>|<lat,lon> | --alerts <region>|list|off
+  claude-clock config --calendar <secret iCal address>|off | --calendar-email <you@work>|off | --calendar-titles on|off
   claude-clock uninstall [--yes]                   remove hooks, restore your statusline
 `)
 }
@@ -104,6 +105,7 @@ func hook() {
 	json.Unmarshal(in, &h)
 	job, _ := json.Marshal(sendJob{Path: "/api/event", Event: &e, Cwd: h.Cwd})
 	spawnSend(job)
+	maybeCalendar(c)
 }
 
 func statusline() {
@@ -115,6 +117,9 @@ func statusline() {
 		cmd.Run()
 	}
 	defer func() { recover() }()
+	if c, err := cfg.Load(); err == nil && c.URL != "" && !recentlyDown() {
+		maybeCalendar(c)
+	}
 	body, ok := event.Limits(in)
 	if !ok || recentlyDown() || !throttle("limits.stamp", limitsEvery) {
 		return
@@ -155,6 +160,10 @@ func send(_ []string) {
 	}
 	c, err := cfg.Load()
 	if err != nil {
+		return
+	}
+	if job.Path == "calendar" {
+		syncCalendar(c, 5*time.Second)
 		return
 	}
 	body := []byte(job.Body)
@@ -336,6 +345,7 @@ func setup(args []string) error {
 		fmt.Println(" ", err)
 	}
 	askInfo(&c, args, auto)
+	askCalendar(&c, args, auto)
 	return registerHooks(auto)
 }
 
@@ -453,6 +463,7 @@ func status() error {
 	if st.Weather != "" {
 		fmt.Printf("Weather    %s\nAlerts     %s (now: %s)\n", st.Weather, st.Alerts, st.Alert)
 	}
+	fmt.Printf("Calendar   %s\n", calendarStatus(c))
 	fmt.Printf("This tool  %s\n", version)
 	return nil
 }
@@ -532,6 +543,17 @@ func config(args []string) error {
 			return err
 		}
 		done = true
+	}
+	for _, f := range []struct {
+		name string
+		set  func(*cfg.Config, string) error
+	}{{"--calendar", setCalendar}, {"--calendar-email", setCalendarEmail}, {"--calendar-titles", setCalendarTitles}} {
+		if v, ok := flag(args, f.name); ok {
+			if err := f.set(&c, v); err != nil {
+				return err
+			}
+			done = true
+		}
 	}
 	if !done {
 		usage()

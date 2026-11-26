@@ -106,12 +106,19 @@ static void topBar(const Model &m, const View &v, const LocalTime &lt, const Net
     } else if (v.screen != Screen::Clock) {
         total = busy = 0;  // limit / offline screens: no session dots
     }
+    // after the date: red / amber "!" during an alert, else blue minutes to a meeting starting within 10 min
     AlertLevel al = infoState().alert(millis());
     uint16_t mark = al == AlertLevel::None ? 0 : (al == AlertLevel::Drone ? col::AMBER : col::RED);
-    String key = left + "|" + busy + "/" + total + "|" + String(rc) + "|" + mark;
+    String markText = "!";
+    int soon = lt.synced ? infoState().meetingSoonMin(uint32_t(time(nullptr))) : -1;
+    if (!mark && soon >= 0) {
+        mark = col::BLUE;
+        markText = resetShort(long(soon) * 60, false).c_str();
+    }
+    String key = left + "|" + busy + "/" + total + "|" + String(rc) + "|" + mark + markText;
     if (key == lastTopL) return;
     lastTopL = key;
-    drawTopBar(left, busy, total, rc, mark);
+    drawTopBar(left, busy, total, rc, mark, markText);
 }
 
 static int shownA = -1, shownB = -1;  // bar heights on screen while they ease to the new %
@@ -678,6 +685,8 @@ static const char ICONS[][10][13] PROGMEM = {
      "ffffffffff..", "............", "............"},  // Siren (card text colour)
     {"....y.......", "....y.......", "...yyy......", "yyyyyyyyy...", ".yyyyyyy....", "..yyyyy.....", "..yy.yy.....",
      ".yy...yy....", "............", "............"},  // Star
+    {"..i.....i...", ".cciccccicc.", ".cccccccccc.", ".iiiiiiiiii.", ".i.ii.ii.ii.", ".iiiiiiiiii.", ".ii.ii.ii.i.",
+     ".iiiiiiiiii.", "............", "............"},  // Calendar
 };
 
 static void drawIcon(InfoIcon ic, int x, int y, uint16_t fg) {
@@ -793,6 +802,9 @@ static SceneCtx sceneContext(const Model &m, const LocalTime &lt, uint32_t now) 
     c.weather = in.weather(now);
     c.alert = in.alert(now) != AlertLevel::None;
     c.alertEnded = in.alertEnded(now);
+    uint32_t epoch = lt.synced ? uint32_t(time(nullptr)) : 0;
+    c.meetingSoon = in.meetingSoonMin(epoch) >= 0;
+    c.meetingNow = in.inMeeting(epoch);
     return c;
 }
 
@@ -921,10 +933,13 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
                 } else {
                     drawStage(pose, P_BODY, hat, hat, it, idle.act() == IdleAct::Rest, lt.synced ? lt.month : 0);
                 }
-                Info::Card card = infoState().card(now, lt.month * 32 + lt.day);
+                Info::Card card = infoState().card(now, lt.month * 32 + lt.day, lt.synced ? uint32_t(time(nullptr)) : 0);
                 if (midnight) {  // New Year: the year banner takes the card's place
                     drawInfoCard(InfoIcon::None, "", "", 0, 0, 0);
                     card.items = 0;
+                } else if (card.tone == 3) {  // meeting soon / now: pinned, blue
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, rgb565(0xC8, 0xD8, 0xF8),
+                                 rgb565(0x18, 0x34, 0x70));
                 } else if (card.tone) {  // alert wins over all
                     bool drone = card.tone == 1;
                     drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), drone ? col::BG : col::INK,

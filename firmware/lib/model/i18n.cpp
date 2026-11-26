@@ -42,7 +42,8 @@ const char *langCode(Lang l) { return l == Lang::Uk ? "uk" : "en"; }
     X(T_ALERT, "Air raid alert", "Тривога") X(T_ALERT_DRONE, "Drones", "Дрони") X(T_ALERT_MISSILE, "Missiles", "Ракети") \
     X(T_TODAY, "Today", "Сьогодні") X(T_FEELS, "feels", "відчув.") X(T_MPS, "m/s", "м/с") \
     X(T_ANSWERS, "ans.", "відп.") X(T_COMMIT1, "commit", "коміт") X(T_COMMIT2, "commits", "коміти") \
-    X(T_COMMIT5, "commits", "комітів") X(T_W_CLEAR, "clear", "ясно") X(T_W_CLOUDS, "cloudy", "хмарно") \
+    X(T_COMMIT5, "commits", "комітів") X(T_MEETING, "Meeting", "Зустріч") X(T_NOW, "Now", "Зараз") \
+    X(T_IN_TIME, "In", "Через") X(T_AT, "At", "О") X(T_LEFT, "left", "ще") X(T_W_CLEAR, "clear", "ясно") X(T_W_CLOUDS, "cloudy", "хмарно") \
     X(T_W_RAIN, "rain", "дощ") X(T_W_DRIZZLE, "drizzle", "мряка") X(T_W_SNOW, "snow", "сніг") \
     X(T_W_STORM, "storm", "гроза") X(T_W_FOG, "fog", "туман")
 

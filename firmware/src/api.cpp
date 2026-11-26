@@ -135,7 +135,7 @@ static void handleStatus() {
         doc["alerts"] = *deviceRegion() ? deviceRegion() : "off";  // region name, never the key
         static const char *const LV[] = {"none", "alert", "drone", "missile"};
         doc["alert"] = LV[int(in.alert(now))];
-        Info::Card c = in.card(now, (lt.month) * 32 + lt.day);
+        Info::Card c = in.card(now, (lt.month) * 32 + lt.day, lt.synced ? uint32_t(time(nullptr)) : 0);
         doc["card"] = String(c.line1.c_str()) + " / " + c.line2.c_str();
     }
     if (srv->hasArg("fs")) doc["fsdiag"] = fsDiag();
@@ -165,11 +165,23 @@ static void handlePair() {
     srv->send(200, "application/json", body);
 }
 
-static void handleInfo() {  // {"alert": "none|drone|missile|alert"} (alert level from the computer, later)
+static void handleInfo() {  // {"meetings": [{s, e, t, hm}]} from the computer's calendar; {"alert": "..."} (later)
     if (!authorized()) return;
     JsonDocument doc;
     if (!parseBody(doc)) return;
     uint32_t now = millis();
+    if (doc["meetings"].is<JsonArrayConst>()) {
+        Meeting ms[Info::MAX_MEETINGS];
+        int n = 0;
+        for (JsonObjectConst o : doc["meetings"].as<JsonArrayConst>()) {
+            if (n == Info::MAX_MEETINGS) break;
+            String t = o["t"] | "", hm = o["hm"] | "";
+            if (t.length() > 60) t = t.substring(0, 60);
+            if (hm.length() > 5) hm = "";
+            ms[n++] = Meeting{o["s"] | 0u, o["e"] | 0u, t.c_str(), hm.c_str()};
+        }
+        infoState().onMeetings(ms, n);
+    }
     if (doc["alert"].is<const char *>() && *deviceRegion()) {
         String a = doc["alert"].as<const char *>();
         AlertLevel l = a == "drone" ? AlertLevel::Drone : a == "missile" ? AlertLevel::Missile

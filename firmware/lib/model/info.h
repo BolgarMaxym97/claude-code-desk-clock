@@ -15,7 +15,13 @@ struct WeatherNow {
     bool night = false;  // OpenWeather icon "..n"
 };
 
-enum class InfoIcon : uint8_t { None, Sun, Moon, SunCloud, MoonCloud, Cloud, Rain, Snow, Storm, Fog, Claude, Siren, Star };
+enum class InfoIcon : uint8_t { None, Sun, Moon, SunCloud, MoonCloud, Cloud, Rain, Snow, Storm, Fog, Claude, Siren, Star, Calendar };
+
+// A meeting from the computer's calendar (epoch seconds; hm = local start "14:00"; title "" = hidden).
+struct Meeting {
+    uint32_t start, end;
+    std::string title, hm;
+};
 
 bool parseOwm(const std::string &json, WeatherNow &out);  // false: error answer / missing fields
 Weather weatherKind(const WeatherNow &w);                  // for the weather scenes
@@ -49,6 +55,10 @@ class Info {
     void onAnswer(int dayKey);
     void onCommit(int dayKey);
     void setRegion(const std::string &r) { region_ = r; }
+    static constexpr int MAX_MEETINGS = 8, SOON_MIN = 10;
+    void onMeetings(const Meeting *m, int n);           // replaces the list (n = 0: calendar off / nothing ahead)
+    int meetingSoonMin(uint32_t epoch) const;           // minutes to the next meeting when <= 10, else -1
+    bool inMeeting(uint32_t epoch) const;
     TodaySnap today() const { return TodaySnap{day_, busyMs_, answers_, commits_}; }
     void restore(const TodaySnap &t) { day_ = t.day; busyMs_ = t.busyMs; answers_ = t.answers; commits_ = t.commits; }
     void alertsOff() { hasUb_ = hasMac_ = on_ = ended_ = false; }  // region cleared: no alert, no all-clear
@@ -65,7 +75,7 @@ class Info {
         uint8_t tone = 0;          // 0 normal, 1 yellow (drones), 2 red (alert / missiles)
         uint8_t items = 0, index = 0;  // rotation dots: how many, which one is shown (0 items: no dots)
     };
-    Card card(uint32_t now, int dayKey) const;
+    Card card(uint32_t now, int dayKey, uint32_t epoch = 0) const;  // epoch 0: time unknown (no meetings)
 
   private:
     void track(uint32_t now);  // alert start / end from the effective level
@@ -79,4 +89,7 @@ class Info {
     bool busyCalled_ = false, prevBusy_ = false;
     int answers_ = 0, commits_ = 0;
     std::string region_;
+    Meeting meetings_[MAX_MEETINGS];
+    int nMeetings_ = 0;
+    const Meeting *nextMeeting(uint32_t epoch) const;  // ongoing or next, nullptr: none
 };

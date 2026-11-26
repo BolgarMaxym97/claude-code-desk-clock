@@ -248,6 +248,14 @@ void test_texts_fit_in_both_languages() {  // every place a translated text is d
                             std::string(tr(T_TODAY)) + " " + resetShort(23 * 3600 + 59 * 60, false),
                             std::string(tr(T_ALERT)) + " " + resetShort(35999, false),
                             std::string(tr(T_ALERT_MISSILE)) + " 9:59", std::string(tr(T_ALERT_DRONE)) + " 9:59"};
+        {
+            Info mi;
+            Meeting m{1000000, 1000000 + 3600 * 9, "", "23:59"};
+            mi.onMeetings(&m, 1);
+            std::string meet[] = {mi.card(0, 0, 1000000 + 60).line1, mi.card(0, 0, 1000000 - 3540).line1,
+                                  mi.card(0, 0, 1000000 - 7200).line1, mi.card(0, 0, 1000000 + 60).line2};
+            for (const std::string &w : meet) TEST_ASSERT_TRUE_MESSAGE(advance(F_S, w.c_str()) <= lineW, w.c_str());
+        }
         for (const std::string &w : l1) TEST_ASSERT_TRUE_MESSAGE(advance(F_S, w.c_str()) <= lineW, w.c_str());
         Info in;
         for (int i = 0; i < 288; i++) in.onAnswer(1);

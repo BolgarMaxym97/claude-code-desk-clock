@@ -18,10 +18,10 @@ int textWidth(const uint8_t *font, const String &s) {
     return w;
 }
 
-void drawTopBar(const String &left, int busy, int total, uint16_t dotCol, uint16_t mark) {
+void drawTopBar(const String &left, int busy, int total, uint16_t dotCol, uint16_t mark, const String &markText) {
     tft.fillRect(lay::TOP_L - 2, 0, lay::TOP_R - lay::TOP_L + 4, lay::CHIP_Y - 1, col::BG);
     text(F_TOP, left, lay::TOP_L, lay::TOPROW_BASE, col::INK, col::BG, L_BASELINE);
-    if (mark) text(F_TOP, "!", lay::TOP_L + textWidth(F_TOP, left) + 8, lay::TOPROW_BASE, mark, col::BG, L_BASELINE);
+    if (mark) text(F_TOP, markText, lay::TOP_L + textWidth(F_TOP, left) + 8, lay::TOPROW_BASE, mark, col::BG, L_BASELINE);
     SessionDots d = sessionDots(busy, total);
     int x = lay::TOP_R;
     if (d.more > 0) {  // "+3" after the dots

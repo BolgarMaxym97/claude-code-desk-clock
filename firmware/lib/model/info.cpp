@@ -135,6 +135,34 @@ void Info::onBusy(bool busy, uint32_t now, int dayKey) {
 void Info::onAnswer(int dayKey) { day(dayKey); answers_++; }
 void Info::onCommit(int dayKey) { day(dayKey); commits_++; }
 
+void Info::onMeetings(const Meeting *m, int n) {
+    nMeetings_ = 0;
+    for (int i = 0; i < n && nMeetings_ < MAX_MEETINGS; i++)
+        if (m[i].end > m[i].start) meetings_[nMeetings_++] = m[i];
+}
+
+const Meeting *Info::nextMeeting(uint32_t epoch) const {
+    if (!epoch) return nullptr;
+    const Meeting *best = nullptr;
+    for (int i = 0; i < nMeetings_; i++)
+        if (meetings_[i].end > epoch && (!best || meetings_[i].start < best->start)) best = &meetings_[i];
+    return best;
+}
+
+bool Info::inMeeting(uint32_t epoch) const {
+    const Meeting *m = nextMeeting(epoch);
+    return m && m->start <= epoch;
+}
+
+int Info::meetingSoonMin(uint32_t epoch) const {
+    const Meeting *m = nextMeeting(epoch);
+    if (!m || m->start <= epoch) return -1;
+    int min = int((m->start - epoch + 59) / 60);
+    return min <= SOON_MIN ? min : -1;
+}
+
+static std::string minutes(uint32_t secs) { return resetShort(long((secs + 59) / 60 * 60), false); }
+
 static const char *commitWord(int n) {
     if (lang() == Lang::En) return n == 1 ? tr(T_COMMIT1) : tr(T_COMMIT2);
     int d = n % 10, h = n % 100;
@@ -156,7 +184,7 @@ void Info::track(uint32_t now) {
     on_ = on;
 }
 
-Info::Card Info::card(uint32_t now, int dayKey) const {
+Info::Card Info::card(uint32_t now, int dayKey, uint32_t epoch) const {
     AlertLevel a = alert(now);
     Card c;
     if (a != AlertLevel::None) {
@@ -169,16 +197,41 @@ Info::Card Info::card(uint32_t now, int dayKey) const {
         c.tone = a == AlertLevel::Drone ? 1 : 2;
         return c;
     }
-    bool wx = hasWeather(now), today = day_ == dayKey && (answers_ > 0 || commits_ > 0 || busyMs_ >= 60000);
-    c.items = uint8_t(wx + today);
-    if (!c.items) return c;
-    c.index = uint8_t((now / CARD_STEP_MS) % c.items);
-    if (wx && c.index == 0) {
-        c.icon = weatherIcon(wx_);
-        c.line1 = weatherText(wx_);
-        c.line2 = weatherDetail(wx_);
-        return c;
+    const Meeting *m = nextMeeting(epoch);
+    if (m) {
+        c.icon = InfoIcon::Calendar;
+        c.line2 = m->title.empty() ? tr(T_MEETING) : m->title;
+        if (m->start <= epoch) {  // during the meeting: pinned
+            std::string left = minutes(m->end - epoch);
+            c.line1 = std::string(tr(T_NOW)) + " · " +
+                      (lang() == Lang::En ? left + " " + tr(T_LEFT) : std::string(tr(T_LEFT)) + " " + left);
+            c.tone = 3;
+            return c;
+        }
+        uint32_t ahead = m->start - epoch;
+        c.line1 = ahead <= 3600 ? std::string(tr(T_IN_TIME)) + " " + minutes(ahead) : std::string(tr(T_AT)) + " " + m->hm;
+        if (ahead <= uint32_t(SOON_MIN) * 60) {  // soon: pinned
+            c.tone = 3;
+            return c;
+        }
     }
+    bool wx = hasWeather(now), meet = m != nullptr,
+         today = day_ == dayKey && (answers_ > 0 || commits_ > 0 || busyMs_ >= 60000);
+    c.items = uint8_t(wx + meet + today);
+    if (!c.items) return Card{};
+    c.index = uint8_t((now / CARD_STEP_MS) % c.items);
+    int k = c.index;
+    if (wx && k-- == 0) {
+        Card w;
+        w.items = c.items;
+        w.index = c.index;
+        w.icon = weatherIcon(wx_);
+        w.line1 = weatherText(wx_);
+        w.line2 = weatherDetail(wx_);
+        return w;
+    }
+    if (meet && k-- == 0) return c;
+    c.line2.clear();
     c.icon = InfoIcon::Claude;
     std::string t = resetShort(long(busyMs_ / 1000), false);
     c.line1 = std::string(tr(T_TODAY)) + " " + t;
