@@ -16,10 +16,14 @@ enum class SState { Idle, Thinking, Working, Compacting, Permission, YourTurn, E
 enum class Reaction { None, TestsOk, TestsFail, Commit, Push, Install, Docker };
 // target: the command (truncated by the hook); ok: PostToolUse (true) or PostToolUseFailure (false).
 Reaction classifyBash(const std::string &target, bool ok);
+// Reaction from the kinds the computer found in the whole command. ok: push > commit > tests > install > docker;
+// failed: tests -> TestsFail, else none.
+Reaction classifyKinds(const std::string &kinds, bool ok);
 
 struct EventIn {
     std::string session, project, branch, tool, target;
     Ev ev;
+    std::string kinds;  // finished Bash command, from the computer: "tests,commit,push,install,docker" subset
 };
 
 struct ClaudeSession {

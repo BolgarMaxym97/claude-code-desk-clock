@@ -282,6 +282,27 @@ void test_greeting_after_a_long_silence() {
     TEST_ASSERT_FALSE(m.greeting(1000 + 33 * MIN + 1000));
 }
 
+void test_reaction_from_host_kinds() {  // the computer sends what the whole command did; push wins over commit
+    TEST_ASSERT_EQUAL(int(Reaction::Push), int(classifyKinds("commit,push", true)));
+    TEST_ASSERT_EQUAL(int(Reaction::Commit), int(classifyKinds("commit", true)));
+    TEST_ASSERT_EQUAL(int(Reaction::Push), int(classifyKinds("tests,push", true)));
+    TEST_ASSERT_EQUAL(int(Reaction::TestsOk), int(classifyKinds("tests,install", true)));
+    TEST_ASSERT_EQUAL(int(Reaction::TestsFail), int(classifyKinds("tests,push", false)));
+    TEST_ASSERT_EQUAL(int(Reaction::None), int(classifyKinds("commit,push", false)));
+    TEST_ASSERT_EQUAL(int(Reaction::Docker), int(classifyKinds("docker", true)));
+    TEST_ASSERT_EQUAL(int(Reaction::None), int(classifyKinds("", true)));
+    // model: a finished Bash event with kinds -> that reaction, even though the 22-char target shows only the commit
+    Model m;
+    EventIn e{"s1", "p", "", "Bash", "git commit -q -F - <<…", Ev::PostToolUse};
+    e.kinds = "commit,push";
+    m.onEvent(e, 1000);
+    TEST_ASSERT_EQUAL(int(Reaction::Push), int(m.reaction()));
+}
+
+void test_bash_reactions_from_target_text() {  // older computers send only the (cut) command text
+    TEST_ASSERT_EQUAL(int(Reaction::Push), int(classifyBash("git commit -m x && git push", true)));
+}
+
 void test_bash_reactions() {
     TEST_ASSERT_EQUAL(int(Reaction::TestsOk), int(classifyBash("npm test", true)));
     TEST_ASSERT_EQUAL(int(Reaction::TestsFail), int(classifyBash("pytest -q", false)));
@@ -464,6 +485,8 @@ int main() {
     RUN_TEST(test_evening_sleeps_after_half_an_hour);
     RUN_TEST(test_greeting_after_a_long_silence);
     RUN_TEST(test_bash_reactions);
+    RUN_TEST(test_reaction_from_host_kinds);
+    RUN_TEST(test_bash_reactions_from_target_text);
     RUN_TEST(test_model_remembers_reaction_tool_time_and_edits);
     RUN_TEST(test_working_shows_at_night_dimmed);
     RUN_TEST(test_night_idle_sleeps_but_your_turn_wakes);

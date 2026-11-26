@@ -117,7 +117,8 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
         case Ev::PostToolUse:
         case Ev::PostToolUseFailure:
             if (e.tool == "Bash") {
-                Reaction r = classifyBash(e.target, e.ev == Ev::PostToolUse);
+                bool ok = e.ev == Ev::PostToolUse;
+                Reaction r = e.kinds.empty() ? classifyBash(e.target, ok) : classifyKinds(e.kinds, ok);
                 if (r != Reaction::None) { reaction_ = r; reactionAtMs_ = nowMs; }
             }
             if (s->state != SState::Thinking) setState(SState::Working);
@@ -264,6 +265,25 @@ static bool hasToken(const std::string &t, const char *const *words) {
     return false;
 }
 
+Reaction classifyKinds(const std::string &kinds, bool ok) {
+    auto has = [&kinds](const char *k) {
+        size_t n = std::strlen(k), p = 0;
+        while ((p = kinds.find(k, p)) != std::string::npos) {
+            bool start = p == 0 || kinds[p - 1] == ',', end = p + n == kinds.size() || kinds[p + n] == ',';
+            if (start && end) return true;
+            p += n;
+        }
+        return false;
+    };
+    if (!ok) return has("tests") ? Reaction::TestsFail : Reaction::None;
+    if (has("push")) return Reaction::Push;
+    if (has("commit")) return Reaction::Commit;
+    if (has("tests")) return Reaction::TestsOk;
+    if (has("install")) return Reaction::Install;
+    if (has("docker")) return Reaction::Docker;
+    return Reaction::None;
+}
+
 Reaction classifyBash(const std::string &t, bool ok) {
     static const char *const TEST[] = {"test", "tests", "pytest", "phpunit", "pest", "jest", "vitest", "unittest", nullptr};
     static const char *const INSTALL[] = {"install", nullptr};
@@ -272,8 +292,8 @@ Reaction classifyBash(const std::string &t, bool ok) {
     static const char *const DOCKER[] = {"docker", "docker-compose", nullptr};
     if (hasToken(t, TEST)) return ok ? Reaction::TestsOk : Reaction::TestsFail;
     if (!ok) return Reaction::None;
+    if (t.find("git push") != std::string::npos) return Reaction::Push;  // "commit && push": the push is the news
     if (t.find("git commit") != std::string::npos) return Reaction::Commit;
-    if (t.find("git push") != std::string::npos) return Reaction::Push;
     if (hasToken(t, PM) && (hasToken(t, INSTALL) || hasToken(t, ADD))) return Reaction::Install;
     if (hasToken(t, DOCKER)) return Reaction::Docker;
     return Reaction::None;

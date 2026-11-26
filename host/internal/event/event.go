@@ -18,6 +18,7 @@ type Event struct {
 	Kind    string `json:"kind"`
 	Target  string `json:"target"`
 	Branch  string `json:"branch,omitempty"`
+	Kinds   string `json:"kinds,omitempty"` // finished Bash command: "tests,commit,push,install,docker" subset
 }
 
 type hookIn struct {
@@ -54,6 +55,11 @@ func FromHook(stdin []byte, projectDir string) (Event, bool) {
 		}
 	}
 	e.Target = cut(strings.NewReplacer("\n", " ", "\t", " ", "\r", " ").Replace(target(h)), targetMax)
+	if h.ToolName == "Bash" && (h.HookEventName == "PostToolUse" || h.HookEventName == "PostToolUseFailure") {
+		if cmd, _ := h.ToolInput["command"].(string); cmd != "" {
+			e.Kinds = strings.Join(BashKinds(cmd), ",")
+		}
+	}
 	return e, true
 }
 

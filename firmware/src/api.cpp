@@ -70,6 +70,7 @@ static void handleEvent() {
     e.tool = utf8Truncate(doc["tool"] | "", 48);
     e.target = utf8Truncate(doc["target"] | "", 22);
     e.ev = parseEvent(doc["event"] | "", doc["kind"] | "");
+    e.kinds = utf8Truncate(doc["kinds"] | "", 48);
     mdl->onEvent(e, millis());
     ok();
 }
@@ -100,6 +101,8 @@ static void handleStatus() {
     doc["sessions"] = mdl->count();
     doc["busy"] = mdl->busyCount();
     doc["screen"] = SCREEN_NAMES[int(v.screen)];
+    static const char *REACT[] = {"", "tests-ok", "tests-fail", "commit", "push", "install", "docker"};
+    if (mdl->reaction() != Reaction::None && millis() - mdl->reactionAtMs() <= 10000) doc["reaction"] = REACT[int(mdl->reaction())];
     doc["h5"] = mdl->limit5h().pct;
     doc["d7"] = mdl->limit7d().pct;
     JsonArray list = doc["list"].to<JsonArray>();

@@ -116,7 +116,9 @@ If the clock cannot reach its network for about 2–3 minutes, it shows the QR c
   - the tool name;
   - the project folder name;
   - the git branch;
-  - **the first 22 characters** of the current command, file name, search, or your prompt.
+  - **the first 22 characters** of the current command, file name, search, or your prompt;
+  - for a finished terminal command, only which of these it did: tests, commit, push, install, docker
+    (the command itself is checked on your computer).
 
   Nothing else from Claude Code is read or stored.
 - This goes over plain HTTP on your home network and is protected by a per-clock token. The clock generates the token
