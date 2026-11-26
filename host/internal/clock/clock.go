@@ -30,6 +30,9 @@ type Status struct {
 	Heap     int    `json:"heap"`
 	Uptime   int    `json:"uptime"`
 	SSID     string `json:"ssid"`
+	Weather  string `json:"weather"`
+	Alerts   string `json:"alerts"`
+	Alert    string `json:"alert"`
 }
 
 // Post sends JSON with the token; any non-2xx is an error.

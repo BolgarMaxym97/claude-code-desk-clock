@@ -8,6 +8,7 @@
 #include "config.h"
 #include "fonts.h"
 #include "i18n.h"
+#include "info.h"
 #include "model.h"
 #include "idle.h"
 #include "scene.h"
@@ -240,6 +241,19 @@ void test_texts_fit_in_both_languages() {  // every place a translated text is d
             // drawCaption drops the date when caption + date do not fit; the caption alone must fit
             TEST_ASSERT_TRUE_MESSAGE(advance(F_S, sceneCaption(sc.name, sc.caption)) <= cardW - 20, sc.name);
         }
+        // info card: icon, then line 1 (F_S) and line 2 (F_S3) between INFO_TEXT_DX and INFO_PAD_R
+        int lineW = lay::INFO_W - lay::INFO_TEXT_DX - lay::INFO_PAD_R;
+        std::string l1[] = {weatherText(WeatherNow{202, -28, 1, 0, false}), weatherText(WeatherNow{801, -28, 1, 0, false}),
+                            weatherText(WeatherNow{301, -28, 1, 0, false}), weatherText(WeatherNow{741, -28, 1, 0, false}),
+                            std::string(tr(T_TODAY)) + " " + resetShort(23 * 3600 + 59 * 60, false),
+                            std::string(tr(T_ALERT)) + " " + resetShort(35999, false),
+                            std::string(tr(T_ALERT_MISSILE)) + " 9:59", std::string(tr(T_ALERT_DRONE)) + " 9:59"};
+        for (const std::string &w : l1) TEST_ASSERT_TRUE_MESSAGE(advance(F_S, w.c_str()) <= lineW, w.c_str());
+        Info in;
+        for (int i = 0; i < 288; i++) in.onAnswer(1);
+        for (int i = 0; i < 88; i++) in.onCommit(1);
+        std::string l2[] = {weatherDetail(WeatherNow{800, -28, 25, -38, false}), in.card(0, 1).line2};
+        for (const std::string &w : l2) TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w.c_str()) <= lineW, w.c_str());
         for (std::string w : {resetShort(4 * 3600 + 59 * 60, false), resetShort(59 * 60, true), resetShort(23 * 3600, true)})
             TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w.c_str()) <= 2 * lay::TIMER_HALF, w.c_str());
     }

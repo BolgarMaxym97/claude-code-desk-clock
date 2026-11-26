@@ -80,6 +80,7 @@ func usage() {
   claude-clock status                              clock address, firmware, what it shows
   claude-clock update [--file firmware.bin]        install the latest clock firmware from GitHub
   claude-clock config --lang en|uk | --tz auto|<IANA name> | --birthday MM-DD|off
+  claude-clock config --weather-key <key>|off | --city <name>|<lat,lon> | --alerts <region>|list|off
   claude-clock uninstall [--yes]                   remove hooks, restore your statusline
 `)
 }
@@ -334,6 +335,7 @@ func setup(args []string) error {
 	if err := sendLang(c, askLang(args, auto)); err != nil {
 		fmt.Println(" ", err)
 	}
+	askInfo(&c, args, auto)
 	return registerHooks(auto)
 }
 
@@ -446,8 +448,12 @@ func status() error {
 	if err != nil {
 		return fmt.Errorf("clock not reachable at %s (%v); run `claude-clock setup` if its address changed", c.URL, err)
 	}
-	fmt.Printf("Clock      %s\nFirmware   %s\nShows      %s  %s\nSessions   %d\nWi-Fi      %s\nTimezone   %s\nThis tool  %s\n",
-		c.URL, st.FW, st.Screen, st.Time, st.Sessions, st.SSID, st.TZ, version)
+	fmt.Printf("Clock      %s\nFirmware   %s\nShows      %s  %s\nSessions   %d\nWi-Fi      %s\nTimezone   %s\n",
+		c.URL, st.FW, st.Screen, st.Time, st.Sessions, st.SSID, st.TZ)
+	if st.Weather != "" {
+		fmt.Printf("Weather    %s\nAlerts     %s (now: %s)\n", st.Weather, st.Alerts, st.Alert)
+	}
+	fmt.Printf("This tool  %s\n", version)
 	return nil
 }
 
@@ -507,6 +513,24 @@ func config(args []string) error {
 			return fmt.Errorf("birthday: %v (use MM-DD, e.g. 11-20)", err)
 		}
 		fmt.Println("Birthday set.")
+		done = true
+	}
+	if v, ok := flag(args, "--weather-key"); ok {
+		if err := setWeatherKey(&c, v); err != nil {
+			return err
+		}
+		done = true
+	}
+	if v, ok := flag(args, "--city"); ok {
+		if err := setCity(c, v); err != nil {
+			return err
+		}
+		done = true
+	}
+	if v, ok := flag(args, "--alerts"); ok {
+		if err := setAlerts(c, v); err != nil {
+			return err
+		}
 		done = true
 	}
 	if !done {

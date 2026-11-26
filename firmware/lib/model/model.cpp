@@ -123,6 +123,9 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
                 bool ok = e.ev == Ev::PostToolUse;
                 Reaction r = e.kinds.empty() ? classifyBash(e.target, ok) : classifyKinds(e.kinds, ok);
                 if (r != Reaction::None) { reaction_ = r; reactionAtMs_ = nowMs; }
+                bool commit = e.kinds.empty() ? r == Reaction::Commit
+                                              : ok && ("," + e.kinds + ",").find(",commit,") != std::string::npos;
+                if (commit) commits_++;  // "today with Claude": counted even when a push wins the reaction
             }
             if (s->state != SState::Thinking) setState(SState::Working);
             break;
@@ -203,9 +206,9 @@ View Model::view(uint32_t nowMs, const LocalTime &t) const {
         bool away = nowMs - lastEventMs_ > (t.hour >= EVENING_FROM_H ? EVENING_SLEEP_MS : AWAY_SLEEP_MS);
         bool limitHit = hasLimits_ && !limitsStale(nowMs) && (h5_.pct >= 100 || d7_.pct >= 100);
         if (!t.synced) pick(Screen::Boot, nullptr);  // booting / connecting: no time yet
-        else if (v.night) pick(Screen::Sleep, nullptr);
+        else if (v.night && !alert_) pick(Screen::Sleep, nullptr);
         else if (limitHit) pick(Screen::LimitReached, nullptr);
-        else if (away) pick(Screen::Sleep, nullptr);
+        else if (away && !alert_) pick(Screen::Sleep, nullptr);
         else pick(Screen::Clock, nullptr);
     }
     v.brightness = (v.night || v.screen == Screen::Sleep) ? BRIGHT_NIGHT : BRIGHT_DAY;

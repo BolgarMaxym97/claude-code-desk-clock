@@ -149,6 +149,8 @@ void test_poses_stay_inside_the_stage() {
         IdlePose p = d.pose(t, MIN, false);
         TEST_ASSERT_NOT_NULL(p.frame);
         TEST_ASSERT_TRUE(p.dx >= -IDLE_MAX_DX && p.dx <= IDLE_MAX_DX);
+        // the stage is shown 1.2x larger and cropped to the column: the mascot (70 px wide at rest x 57) stays visible
+        TEST_ASSERT_TRUE_MESSAGE(57 + p.dx >= IDLE_VIEW_L && 57 + 70 + p.dx <= IDLE_VIEW_R, "mascot walks out of view");
         TEST_ASSERT_TRUE(p.dy >= -16 && p.dy <= 6);
     }
 }

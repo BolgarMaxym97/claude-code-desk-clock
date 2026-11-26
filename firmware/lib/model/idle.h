@@ -6,8 +6,10 @@
 #include "scene.h"
 
 constexpr uint32_t IDLE_TICK_MS = 140;  // animation tick on the clock screen
-constexpr int IDLE_MAX_DX = 55;
-constexpr int IDLE_STAGE_W = 184, IDLE_STAGE_H = 70;  // stage between the gauges, mascot rests at (57, 16)         // walk range left/right of centre (stays between the gauges)
+constexpr int IDLE_MAX_DX = 40;  // walk range left/right of centre (stays in the visible part of the 1.2x stage)
+constexpr int IDLE_STAGE_W = 184, IDLE_STAGE_H = 70;
+// Shown 1.2x larger and cropped to the 184 px column: stage columns 16..168 are visible.
+constexpr int IDLE_VIEW_L = 16, IDLE_VIEW_R = 168;  // stage between the gauges, mascot rests at (57, 16)         // walk range left/right of centre (stays between the gauges)
 
 enum class IdleAct : uint8_t { Rest, Walk, Jump, Dance, Look, Wave, Doze, Star, Eat, Sport, ClockLook, Party, NewYear, Scene };  // Scene: sceneAt(sceneIndex()) draws itself
 

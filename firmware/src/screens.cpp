@@ -8,11 +8,13 @@
 #include "render.h"
 #include "text.h"
 #include "idle.h"
+#include "fetch.h"
 #include "qrcode.h"
 #include "wifisetup.h"
 
 static TFT_eSprite hero(&tft);   // big mascot + accessory
 static TFT_eSprite stage(&tft);  // 4-bit palette stage between the gauges for the idle mascot
+static void pushStageScaled();  // clock stage at 1.2x
 static IdleDirector idle;
 static uint32_t lastIdleTick = UINT32_MAX;
 static uint32_t nyPreviewUntil = 0;
@@ -104,10 +106,12 @@ static void topBar(const Model &m, const View &v, const LocalTime &lt, const Net
     } else if (v.screen != Screen::Clock) {
         total = busy = 0;  // limit / offline screens: no session dots
     }
-    String key = left + "|" + busy + "/" + total + "|" + String(rc);
+    AlertLevel al = infoState().alert(millis());
+    uint16_t mark = al == AlertLevel::None ? 0 : (al == AlertLevel::Drone ? col::AMBER : col::RED);
+    String key = left + "|" + busy + "/" + total + "|" + String(rc) + "|" + mark;
     if (key == lastTopL) return;
     lastTopL = key;
-    drawTopBar(left, busy, total, rc);
+    drawTopBar(left, busy, total, rc, mark);
 }
 
 static int shownA = -1, shownB = -1;  // bar heights on screen while they ease to the new %
@@ -510,7 +514,7 @@ static void drawWinter(uint32_t t, bool resting) {
     static const char *const TREE[] = {"....g....", "...ggg...", "..ggggg..", "...ggg...", "..ggggg..", ".ggggggg.", "ggggggggg", "....t...."};
     static const int LX[] = {4, 3, 6, 2, 5, 1, 7}, LY[] = {1, 2, 4, 5, 5, 6, 6};
     static const uint8_t LC[] = {P_APPLE, P_STAR, P_SWEAT};
-    const int tx = 146, ty = 24;
+    const int tx = 124, ty = 24;  // inside the visible part of the 1.2x stage (columns 16..167)
     for (int r = 0; r < 8; r++)
         for (int k = 0; k < 9; k++)
             if (TREE[r][k] != '.') stage.fillRect(tx + 4 * k, ty + 4 * r, 4, 4, TREE[r][k] == 'g' ? P_LEAF : P_LID);
@@ -562,7 +566,33 @@ static void drawStage(const IdlePose &p, uint8_t body, bool hat, bool winter = f
         stage.fillRect(x + 64, SPR_Y + p.crumbY, 3, 3, P_APPLE);
         stage.fillRect(x + 70, SPR_Y + p.crumbY + 4, 2, 2, P_CRUMB);
     }
-    stage.pushSprite(lay::CL, STAGE_Y);
+    pushStageScaled();
+}
+
+// The clock stage is drawn at 184x70 and shown 1.2x larger (5 px sprite pixels -> 6 px), cropped to the column:
+// every 5th stage row and column is doubled. Same-colour runs go out as one rect, so a frame is a few hundred rects.
+static void pushStageScaled() {
+    const int W = lay::CR - lay::CL;
+    static uint8_t colMap[lay::CR - lay::CL];
+    static bool mapped = false;
+    if (!mapped) {
+        for (int ox = 0; ox < W; ox++) colMap[ox] = uint8_t(W / 2 + ((ox - W / 2) * 5 + 600) / 6 - 100);
+        mapped = true;
+    }
+    for (int sy = 0; sy < STAGE_H; sy++) {
+        int oy0 = (sy * 6 + 4) / 5, oy1 = ((sy + 1) * 6 + 4) / 5;
+        if (oy1 > lay::STAGE_SHOW_H) oy1 = lay::STAGE_SHOW_H;
+        if (oy0 >= oy1) continue;
+        int run = 0;
+        uint16_t c = stage.readPixel(colMap[0], sy);
+        for (int ox = 1; ox <= W; ox++) {
+            uint16_t n = ox < W ? stage.readPixel(colMap[ox], sy) : uint16_t(~c);
+            if (n == c) continue;
+            tft.fillRect(lay::CL + run, STAGE_Y + oy0, ox - run, oy1 - oy0, c);
+            run = ox;
+            c = n;
+        }
+    }
 }
 
 // New Year midnight: the year under the dancing mascot (clock screen, 00:00 on Jan 1).
@@ -616,25 +646,86 @@ static void drawSceneStage(const Scene &sc, uint32_t p, uint32_t t, bool hat) {
     SpriteCanvas c(stage, lay::CL, lay::STAGE_Y);
     MascotAt m = sc.draw(c, p, t);
     if (hat && m.hatOk) frame(c, SPR_HAT_IDLE, m.x, m.y - 3 * lay::SMALL_PX, lay::SMALL_PX, S_BODY, 3);
-    stage.pushSprite(lay::CL, lay::STAGE_Y);
+    pushStageScaled();
     stage.createPalette(PALETTE, 16);
 }
 
-// Holiday caption under the mascot while a holiday scene plays (card area, clock screen).
-static String captionShown;
-static void drawCaption(const char *caption, const char *date) {
-    String &shown = captionShown;
-    String key = caption ? String(caption) + date : String();
-    if (key == shown) return;
-    shown = key;
-    int x = lay::CL + 2, w = lay::CR - lay::CL - 4;
-    tft.fillRect(x - 2, lay::CARD_Y, w + 4, lay::CARD_H, col::BG);
-    if (!caption) return;
-    tft.fillSmoothRoundRect(x, lay::CARD_Y, w, lay::CARD_H, 7, col::CARD, col::BG);
-    int dw = date && *date ? textWidth(F_LIM, date) + 8 : 0;
-    if (dw && textWidth(F_S, caption) > w - 20 - dw) dw = 0;  // long caption: drop the date rather than cut the name
-    text(F_S, fitText(F_S, caption, w - 20 - dw), x + 10, lay::CARD_Y + 17, col::AMBER, col::CARD, ML_DATUM);
-    if (dw) text(F_LIM, date, x + w - 8, lay::CARD_Y + 17, col::MUTED, col::CARD, MR_DATUM);
+// Info card under the mascot (clock screen): air-raid alert, holiday caption, weather, today with Claude.
+// 12x10 pixel icons drawn at 2x; letters pick the colour.
+static const char ICONS[][10][13] PROGMEM = {
+    {},  // None
+    {".....y......", ".y.......y..", "....yyy.....", "...yyyyy....", "y.yyyyyyy.y.", "...yyyyy....", "....yyy.....",
+     ".y.......y..", ".....y......", "............"},  // Sun
+    {"....mmm.....", "..mmm.......", ".mmm........", ".mm.........", ".mm.........", ".mmm........", "..mmmm..m...",
+     "...mmmmmm...", "............", "............"},  // Moon
+    {"..y.y.......", "...yyy......", "..yyyyy.....", ".yyyywww....", "..yywwwwww..", "..wwwwwwwww.", ".wwwwwwwwwww",
+     "..wwwwwwwww.", "............", "............"},  // SunCloud
+    {"..mm........", ".mm.........", ".mm.........", ".mmm.www....", "..mmwwwwww..", "..wwwwwwwww.", ".wwwwwwwwwww",
+     "..wwwwwwwww.", "............", "............"},  // MoonCloud
+    {"............", "............", ".....www....", "...wwwwwww..", "..wwwwwwwww.", ".wwwwwwwwwww", ".wwwwwwwwwww",
+     "..wwwwwwwww.", "............", "............"},  // Cloud
+    {"....www.....", "..wwwwwww...", ".wwwwwwwww..", "wwwwwwwwwww.", ".wwwwwwwww..", "............", ".b..b..b....",
+     "b..b..b.....", "............", "............"},  // Rain
+    {"....www.....", "..wwwwwww...", ".wwwwwwwww..", "wwwwwwwwwww.", ".wwwwwwwww..", "............", ".i...i..i...",
+     "...i...i....", ".i...i...i..", "............"},  // Snow
+    {"....www.....", "..wwwwwww...", ".wwwwwwwww..", "wwwwwwwwwww.", ".wwwwwwwww..", ".....yy.....", "....yy......",
+     "...yyyy.....", ".....y......", "............"},  // Storm
+    {"............", ".wwwwwwwww..", "............", "..wwwwwwwwww", "............", ".wwwwwwwww..", "............",
+     "..wwwwwwww..", "............", "............"},  // Fog
+    {".....c......", "..c..c..c...", "...c.c.c....", "....ccc.....", "ccccccccccc.", "....ccc.....", "...c.c.c....",
+     "..c..c..c...", ".....c......", "............"},  // Claude
+    {"....ff......", "...ffff.....", "..ffffff....", "..ffffff....", "..ffffff....", "..ffffff....", ".ffffffff...",
+     "ffffffffff..", "............", "............"},  // Siren (card text colour)
+    {"....y.......", "....y.......", "...yyy......", "yyyyyyyyy...", ".yyyyyyy....", "..yyyyy.....", "..yy.yy.....",
+     ".yy...yy....", "............", "............"},  // Star
+};
+
+static void drawIcon(InfoIcon ic, int x, int y, uint16_t fg) {
+    const char(*rows)[13] = ICONS[int(ic)];
+    if (!pgm_read_byte(&rows[0][0])) return;
+    for (int r = 0; r < 10; r++)
+        for (int k = 0; k < 12; k++) {
+            uint16_t c;
+            switch (char(pgm_read_byte(&rows[r][k]))) {
+                case 'y': c = col::AMBER; break;
+                case 'm': c = rgb565(0xF0, 0xE0, 0xA0); break;
+                case 'w': c = rgb565(0xF0, 0xE4, 0xC8); break;  // warm: the panel adds blue
+                case 'b': c = col::BLUE; break;
+                case 'i': c = col::INK; break;
+                case 'c': c = col::CLAY; break;
+                case 'f': c = fg; break;
+                default: continue;
+            }
+            tft.fillRect(x + 2 * k, y + 2 * r, 2, 2, c);
+        }
+}
+
+static String captionShown, dotsShown;
+// line1 empty: no card. Redraws only when something changed.
+static void drawInfoCard(InfoIcon icon, const String &l1, const String &l2, uint16_t fg, uint16_t sub, uint16_t bg) {
+    String key = l1.length() ? String(int(icon)) + l1 + "|" + l2 + "|" + fg + "/" + bg : String();
+    if (key == captionShown) return;
+    captionShown = key;
+    const int x = lay::INFO_X, y = lay::INFO_Y, w = lay::INFO_W, h = lay::INFO_H;
+    tft.fillRect(x - 2, y, w + 4, h, col::BG);
+    if (!l1.length()) return;
+    tft.fillSmoothRoundRect(x, y, w, h, 7, bg, col::BG);
+    drawIcon(icon, x + 8, y + (h - 20) / 2, fg);
+    int tw = w - lay::INFO_TEXT_DX - lay::INFO_PAD_R;
+    text(F_S, fitText(F_S, l1, tw), x + lay::INFO_TEXT_DX, y + 14, fg, bg, ML_DATUM);
+    if (l2.length()) text(F_S3, fitText(F_S3, l2, tw), x + lay::INFO_TEXT_DX, y + 31, sub, bg, ML_DATUM);
+}
+
+// Rotation dots between the two reset timers: which info item is on the card now.
+static void drawInfoDots(int items, int index) {
+    String key = String(items) + "/" + index;
+    if (key == dotsShown) return;
+    dotsShown = key;
+    tft.fillRect(lay::CX - 30, lay::INFO_DOTS_Y - 5, 60, 10, col::BG);
+    if (items < 2) return;
+    int x0 = lay::CX - (items - 1) * 5;
+    for (int i = 0; i < items; i++)
+        tft.fillSmoothCircle(x0 + i * 10, lay::INFO_DOTS_Y, i == index ? 3 : 2, i == index ? col::INK : col::DIM, col::BG);
 }
 
 // Work screens: scene by the focus session's state and tool; restarts when either changes.
@@ -698,6 +789,10 @@ static SceneCtx sceneContext(const Model &m, const LocalTime &lt, uint32_t now) 
     c.goodnight = evening && m.lastEventMs() &&
                   ((m.count() == 0 && quiet < 10u * 60000u) || (quiet >= 15u * 60000u && quiet < EVENING_SLEEP_MS));
     c.weekClosed = lt.wday == 5;
+    const Info &in = infoState();
+    c.weather = in.weather(now);
+    c.alert = in.alert(now) != AlertLevel::None;
+    c.alertEnded = in.alertEnded(now);
     return c;
 }
 
@@ -770,7 +865,7 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
         tft.fillScreen(v.screen == Screen::Sleep ? TFT_BLACK : col::BG);
         lastMinuteKey = -1000;
         lastIdleTick = UINT32_MAX;
-        captionShown = "";
+        captionShown = dotsShown = "";
         lastTopL = lastGauge = "";
         for (auto &c : lineCache) c = "";
         frame = true;
@@ -826,7 +921,21 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
                 } else {
                     drawStage(pose, P_BODY, hat, hat, it, idle.act() == IdleAct::Rest, lt.synced ? lt.month : 0);
                 }
-                drawCaption(caption, date);
+                Info::Card card = infoState().card(now, lt.month * 32 + lt.day);
+                if (midnight) {  // New Year: the year banner takes the card's place
+                    drawInfoCard(InfoIcon::None, "", "", 0, 0, 0);
+                    card.items = 0;
+                } else if (card.tone) {  // alert wins over all
+                    bool drone = card.tone == 1;
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), drone ? col::BG : col::INK,
+                                 drone ? col::BG : rgb565(0xFF, 0xD0, 0xC0), drone ? col::AMBER : col::RED);
+                } else if (caption) {
+                    drawInfoCard(InfoIcon::Star, caption, date ? date : "", col::AMBER, col::MUTED, col::CARD);
+                    card.items = 0;
+                } else {
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, col::MUTED, col::CARD);
+                }
+                drawInfoDots(card.items, card.index);
             } else {
                 drawSleepStage(it, hat, hat);
             }

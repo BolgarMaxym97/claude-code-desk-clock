@@ -12,6 +12,16 @@ bool deviceSetTz(const String &tz);     // false: invalid
 bool deviceSetBirthday(const String &mmdd);  // "MM-DD" or "" (off); false: invalid
 bool deviceSetLang(const String &code);      // "en" / "uk"; false: unknown
 const char *deviceLang();
+// Weather / air-raid alert sources ("" = off). The OpenWeather key never leaves the device (/status says only "set").
+bool deviceSetOwm(const String &key);     // 32 hex or ""
+bool deviceSetLoc(const String &latLon);  // "lat,lon" or ""
+bool deviceSetRegion(const String &name); // ubilling region name or "" (alerts off)
+const char *deviceOwm();
+const char *deviceLoc();
+const char *deviceRegion();
+// Today-with-Claude counters in the settings record ("day,busyMs,answers,commits"), written now and then.
+const char *deviceToday();
+void deviceSaveToday(const String &v);
 bool deviceSettingsSaved();             // false: kept in RAM only (flash area unusable)
 
 // Pairing: start shows a fresh code on the screen for a few minutes.

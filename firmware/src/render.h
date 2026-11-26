@@ -12,7 +12,7 @@ void text(const uint8_t *font, const String &s, int x, int y, uint16_t fg, uint1
 int textWidth(const uint8_t *font, const String &s);
 
 // Top row between the gauges: left text, right text with a dot; all on lay::TOP_BASE.
-void drawTopBar(const String &left, int busy, int total, uint16_t dotCol);  // dots: one per session, filled = busy
+void drawTopBar(const String &left, int busy, int total, uint16_t dotCol, uint16_t mark = 0);  // dots: one per session, filled = busy
 // Vertical limit gauge in a 26 px side column.
 // line1/line2: reset timer under the % (nullptr/"" = none: full-height bar); pace: white mark 0..100, -1 none.
 void drawGauge(int cx, const char *label, int pct, int shownPct, bool warn, bool stale, const char *timer, int pace);

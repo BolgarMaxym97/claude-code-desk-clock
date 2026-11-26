@@ -7,6 +7,12 @@ const char SETTINGS_MAGIC[5] = "CCS1";
 std::vector<uint8_t> encodeSettingsRec(uint32_t seq, const Settings &s) {
     std::string p = "token=" + s.token + "\ntz=" + s.tz + "\n";
     if (!s.lang.empty()) p += "lang=" + s.lang + "\n";
+    if (!s.owm.empty()) p += "owm=" + s.owm + "\n";
+    if (!s.loc.empty()) p += "loc=" + s.loc + "\n";
+    if (!s.region.empty()) p += "region=" + s.region + "\n";
+    int d, a, c;
+    uint32_t b;
+    if (parseToday(s.today, d, b, a, c)) p += "today=" + s.today + "\n";
     if (s.birthMonth) {
         char b[16];
         snprintf(b, sizeof b, "birth=%02d-%02d\n", s.birthMonth, s.birthDay);
@@ -31,6 +37,10 @@ bool decodeSettingsRec(const uint8_t *buf, size_t n, uint32_t &seq, Settings &ou
         if (k == "token" && validToken(v)) s.token = v;
         else if (k == "tz" && validTz(v)) s.tz = v;
         else if (k == "lang" && (v == "en" || v == "uk")) s.lang = v;
+        else if (k == "owm" && validOwmKey(v)) s.owm = v;
+        else if (k == "loc" && validLoc(v)) s.loc = v;
+        else if (k == "region" && validRegion(v)) s.region = v;
+        else if (k == "today") { int d, a, c; uint32_t b; if (parseToday(v, d, b, a, c)) s.today = v; }
         else if (k == "birth") { int m, d; if (parseBirthday(v, m, d)) { s.birthMonth = m; s.birthDay = d; } }
     }
     out = s;
@@ -51,6 +61,50 @@ bool validToken(const std::string &t) {
     if (t.size() < 16 || t.size() > 64) return false;
     for (char c : t)
         if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return false;
+    return true;
+}
+
+bool validOwmKey(const std::string &k) {
+    if (k.size() != 32) return false;
+    for (char c : k)
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    return true;
+}
+
+static bool coord(const std::string &s, double lim) {
+    if (s.empty() || s.size() > 12) return false;
+    for (size_t i = 0; i < s.size(); i++)
+        if (!((s[i] >= '0' && s[i] <= '9') || s[i] == '.' || (s[i] == '-' && i == 0))) return false;
+    char *end = nullptr;
+    double v = strtod(s.c_str(), &end);
+    return *end == 0 && v >= -lim && v <= lim;
+}
+
+bool validLoc(const std::string &l) {
+    size_t c = l.find(',');
+    return c != std::string::npos && coord(l.substr(0, c), 90) && coord(l.substr(c + 1), 180);
+}
+
+bool validRegion(const std::string &r) {
+    if (r.empty() || r.size() > 80) return false;
+    for (unsigned char c : r)
+        if (c < 0x20 || c == '"' || c == '\\' || c == 0x7F) return false;
+    return true;
+}
+
+bool parseToday(const std::string &s, int &day, uint32_t &busyMs, int &answers, int &commits) {
+    if (s.empty() || s.size() > 40) return false;
+    unsigned long v[4];
+    const char *p = s.c_str();
+    for (int i = 0; i < 4; i++) {
+        if (*p < '0' || *p > '9') return false;
+        char *end;
+        v[i] = strtoul(p, &end, 10);
+        p = end;
+        if (i < 3 && *p++ != ',') return false;
+    }
+    if (*p) return false;
+    day = int(v[0]); busyMs = uint32_t(v[1]); answers = int(v[2]); commits = int(v[3]);
     return true;
 }
 

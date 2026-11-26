@@ -7,7 +7,7 @@
 #include <vector>
 
 extern const char SETTINGS_MAGIC[5];  // "CCS1"
-constexpr size_t SETTINGS_REC_MAX = 256;
+constexpr size_t SETTINGS_REC_MAX = 512;
 constexpr const char *PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";  // no 0/O, 1/I/L
 
 struct Settings {
@@ -15,6 +15,10 @@ struct Settings {
     std::string tz;              // POSIX TZ string; empty = default (Kyiv)
     int birthMonth = 0, birthDay = 0;  // 0 = no birthday scene
     std::string lang;            // "en" / "uk"; empty = English
+    std::string owm;             // OpenWeather API key (32 hex); empty = no weather
+    std::string loc;             // "lat,lon" for the weather
+    std::string region;          // air-raid alert region (ubilling name, e.g. "м. Київ"); empty = alerts off
+    std::string today;           // "day,busyMs,answers,commits": today-with-Claude counters (survive power loss)
 };
 
 std::vector<uint8_t> encodeSettingsRec(uint32_t seq, const Settings &s);
@@ -23,6 +27,10 @@ bool decodeSettingsRec(const uint8_t *buf, size_t n, uint32_t &seq, Settings &ou
 
 bool validTz(const std::string &tz);        // 1..48 chars of [A-Za-z0-9,.:/+<>-]
 bool validToken(const std::string &t);      // 16..64 chars of [A-Za-z0-9]
+bool validOwmKey(const std::string &k);   // 32 chars of [0-9a-f]
+bool validLoc(const std::string &l);      // "lat,lon", decimals, in range
+bool validRegion(const std::string &r);   // 1..80 bytes, no control chars, quotes or backslashes
+bool parseToday(const std::string &s, int &day, uint32_t &busyMs, int &answers, int &commits);
 bool parseBirthday(const std::string &s, int &month, int &day);  // "MM-DD" or "" (off)
 
 std::string makeToken(uint32_t (*rnd)());

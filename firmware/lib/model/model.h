@@ -117,6 +117,7 @@ public:
     uint32_t lastEventMs() const { return lastEventMs_; }
     uint32_t quietMs(uint32_t nowMs) const { return nowMs - lastEventMs_; }  // since the last Mac event (or boot)
     bool greeting(uint32_t nowMs) const { return greetSeen_ && nowMs - greetAtMs_ < GREET_SHOW_MS; }
+    uint32_t commitCount() const { return commits_; }  // successful git commits since boot
     Reaction reaction() const { return reaction_; }
     uint32_t reactionAtMs() const { return reactionAtMs_; }
     bool everHadEvent() const { return everEvent_; }
@@ -127,6 +128,7 @@ public:
     const Limit &limit5h() const { return h5_; }
     const Limit &limit7d() const { return d7_; }
     bool hasLimits() const { return hasLimits_; }
+    void setAlert(bool on) { alert_ = on; }  // air-raid alert: wakes the clock (dimmed at night)
     bool limitsStale(uint32_t nowMs) const { return !hasLimits_ || nowMs - limitsRxMs_ > LIMITS_STALE_MS; }
 
 private:
@@ -136,9 +138,11 @@ private:
     bool silent_ = false, everEvent_ = false, greetSeen_ = false;
     uint32_t greetAtMs_ = 0, reactionAtMs_ = 0;
     Reaction reaction_ = Reaction::None;
+    uint32_t commits_ = 0;
     uint32_t doneDurationMs_ = 0, doneAtMs_ = 0, helloAtMs_ = 0, lastEventMs_ = 0;
     bool doneSeen_ = false, helloSeen_ = false;
     Limit h5_, d7_;
     bool hasLimits_ = false;
+    bool alert_ = false;
     uint32_t limitsRxMs_ = 0;
 };

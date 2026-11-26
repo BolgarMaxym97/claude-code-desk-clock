@@ -58,6 +58,26 @@ bool deviceSetBirthday(const String &mmdd) {
 
 bool deviceSettingsSaved() { return saved; }
 
+static bool setField(std::string &f, const String &v, bool (*valid)(const std::string &)) {
+    std::string x = v.c_str();
+    if (!x.empty() && !valid(x)) return false;
+    f = x;
+    saved = storeSaveSettings(cur);
+    return true;
+}
+bool deviceSetOwm(const String &k) { return setField(cur.owm, k, validOwmKey); }
+bool deviceSetLoc(const String &l) { return setField(cur.loc, l, validLoc); }
+bool deviceSetRegion(const String &r) { return setField(cur.region, r, validRegion); }
+const char *deviceOwm() { return cur.owm.c_str(); }
+const char *deviceLoc() { return cur.loc.c_str(); }
+const char *deviceRegion() { return cur.region.c_str(); }
+const char *deviceToday() { return cur.today.c_str(); }
+void deviceSaveToday(const String &v) {
+    if (cur.today == v.c_str()) return;
+    cur.today = v.c_str();
+    saved = storeSaveSettings(cur);
+}
+
 bool deviceSetLang(const String &code) {
     Lang l;
     if (!parseLang(code.c_str(), l)) return false;

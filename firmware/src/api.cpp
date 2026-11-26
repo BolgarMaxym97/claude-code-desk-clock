@@ -5,6 +5,7 @@
 #include <time.h>
 #include "config.h"
 #include "device.h"
+#include "fetch.h"
 #include "text.h"
 #include "net.h"
 #include "portal.h"
@@ -127,6 +128,16 @@ static void handleStatus() {
     doc["settings"] = deviceSettingsSaved();
     doc["tz"] = deviceTz();
     doc["lang"] = deviceLang();
+    {
+        uint32_t now = millis();
+        const Info &in = infoState();
+        doc["weather"] = !*deviceOwm() ? "off" : in.hasWeather(now) ? String(weatherText(in.weatherNow()).c_str()) : String("waiting");
+        doc["alerts"] = *deviceRegion() ? deviceRegion() : "off";  // region name, never the key
+        static const char *const LV[] = {"none", "alert", "drone", "missile"};
+        doc["alert"] = LV[int(in.alert(now))];
+        Info::Card c = in.card(now, (lt.month) * 32 + lt.day);
+        doc["card"] = String(c.line1.c_str()) + " / " + c.line2.c_str();
+    }
     if (srv->hasArg("fs")) doc["fsdiag"] = fsDiag();
     String out;
     serializeJson(doc, out);
@@ -154,6 +165,20 @@ static void handlePair() {
     srv->send(200, "application/json", body);
 }
 
+static void handleInfo() {  // {"alert": "none|drone|missile|alert"} (alert level from the computer, later)
+    if (!authorized()) return;
+    JsonDocument doc;
+    if (!parseBody(doc)) return;
+    uint32_t now = millis();
+    if (doc["alert"].is<const char *>() && *deviceRegion()) {
+        String a = doc["alert"].as<const char *>();
+        AlertLevel l = a == "drone" ? AlertLevel::Drone : a == "missile" ? AlertLevel::Missile
+                     : a == "alert" ? AlertLevel::Alert : AlertLevel::None;
+        infoState().onAlertLevel(l, now);
+    }
+    ok();
+}
+
 static void handleSettings() {  // {"tz": "<POSIX TZ>", "birthday": "MM-DD" | "", "lang": "en" | "uk"}
     if (!authorized()) return;
     JsonDocument doc;
@@ -170,6 +195,18 @@ static void handleSettings() {  // {"tz": "<POSIX TZ>", "birthday": "MM-DD" | ""
         srv->send(400, "application/json", "{\"error\":\"birthday\"}");
         return;
     }
+    // weather / alerts: "" switches the source off
+    struct F { const char *key; bool (*set)(const String &); } fields[] = {
+        {"owm", deviceSetOwm}, {"loc", deviceSetLoc}, {"region", deviceSetRegion}};
+    for (const F &f : fields) {
+        if (!doc[f.key].is<const char *>()) continue;
+        if (!f.set(doc[f.key].as<const char *>())) {
+            srv->send(400, "application/json", String("{\"error\":\"") + f.key + "\"}");
+            return;
+        }
+        if (!strcmp(f.key, "region") && !*deviceRegion()) infoState().alertsOff();
+        fetchSoon();
+    }
     srv->send(200, "application/json", deviceSettingsSaved() ? "{\"ok\":true}" : "{\"ok\":true,\"saved\":false}");
 }
 
@@ -183,6 +220,7 @@ void apiBegin(ESP8266WebServer &server, Model &model) {
     server.on("/api/pair/start", HTTP_POST, handlePairStart);
     server.on("/api/pair", HTTP_POST, handlePair);
     server.on("/api/settings", HTTP_POST, handleSettings);
+    server.on("/api/info", HTTP_POST, handleInfo);
     server.on("/api/wifi-setup", HTTP_POST, []() {  // open the setup AP for 10 min (change network from the Mac)
         if (!authorized()) return;
         netOpenSetup(600000);

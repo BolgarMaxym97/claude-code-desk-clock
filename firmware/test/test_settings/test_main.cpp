@@ -117,12 +117,76 @@ void test_pair_window_expires_and_locks_after_wrong_tries() {
     TEST_ASSERT_EQUAL(int(PairResult::Locked), int(w.check("NEWCDE", 21)));
 }
 
+void test_info_settings_roundtrip_at_max_length() {
+    Settings s;
+    s.token = std::string(64, 'a');
+    s.tz = std::string(48, 'E');
+    s.lang = "uk";
+    s.birthMonth = 2; s.birthDay = 29;
+    s.owm = "0123456789abcdef0123456789abcdef";
+    s.loc = "-33.87,151.21";
+    s.region = "Дніпропетровська область";  // the longest ubilling region name
+    std::vector<uint8_t> b = encodeSettingsRec(3, s);
+    TEST_ASSERT_TRUE(b.size() <= SETTINGS_REC_MAX);
+    Settings back;
+    uint32_t seq;
+    TEST_ASSERT_TRUE(decodeSettingsRec(b.data(), b.size(), seq, back));
+    TEST_ASSERT_EQUAL_STRING(s.owm.c_str(), back.owm.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.loc.c_str(), back.loc.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.region.c_str(), back.region.c_str());
+    TEST_ASSERT_EQUAL_STRING("uk", back.lang.c_str());
+}
+
+void test_info_validators() {
+    TEST_ASSERT_TRUE(validOwmKey("f0123456789abcdef0123456789abcde"));
+    TEST_ASSERT_FALSE(validOwmKey("F0123456789ABCDEF0123456789ABCDE!"));
+    TEST_ASSERT_FALSE(validOwmKey("short"));
+    TEST_ASSERT_TRUE(validLoc("50.45,30.52"));
+    TEST_ASSERT_TRUE(validLoc("-33.87,151.21"));
+    TEST_ASSERT_FALSE(validLoc("50.45"));
+    TEST_ASSERT_FALSE(validLoc("95,30"));
+    TEST_ASSERT_FALSE(validLoc("50,30&appid=x"));
+    TEST_ASSERT_TRUE(validRegion("м. Київ"));
+    TEST_ASSERT_FALSE(validRegion("a\nb"));
+    TEST_ASSERT_FALSE(validRegion("x\"y"));
+    TEST_ASSERT_FALSE(validRegion(std::string(81, 'x')));
+}
+
+void test_today_counters_in_the_settings_record() {
+    Settings s;
+    s.token = std::string(64, 'a');
+    s.tz = std::string(48, 'E');
+    s.owm = "0123456789abcdef0123456789abcdef";
+    s.loc = "-33.87,151.21";
+    s.region = "Дніпропетровська область";
+    s.today = "378,86399000,999,999";
+    std::vector<uint8_t> b = encodeSettingsRec(4, s);
+    TEST_ASSERT_TRUE(b.size() <= SETTINGS_REC_MAX);
+    Settings back;
+    uint32_t seq;
+    TEST_ASSERT_TRUE(decodeSettingsRec(b.data(), b.size(), seq, back));
+    TEST_ASSERT_EQUAL_STRING("378,86399000,999,999", back.today.c_str());
+    int day; uint32_t busy; int ans, com;
+    TEST_ASSERT_TRUE(parseToday(back.today, day, busy, ans, com));
+    TEST_ASSERT_EQUAL(378, day);
+    TEST_ASSERT_EQUAL(86399000u, busy);
+    TEST_ASSERT_FALSE(parseToday("1,2,3", day, busy, ans, com));
+    TEST_ASSERT_FALSE(parseToday("x,2,3,4", day, busy, ans, com));
+    s.today = "1,2,3\nregion=x";  // junk is dropped on decode
+    b = encodeSettingsRec(5, s);
+    TEST_ASSERT_TRUE(decodeSettingsRec(b.data(), b.size(), seq, back));
+    TEST_ASSERT_TRUE(back.today.empty());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_settings_roundtrip_through_flash_record);
     RUN_TEST(test_settings_record_is_not_a_wifi_record_and_vice_versa);
     RUN_TEST(test_invalid_values_are_dropped_on_decode);
     RUN_TEST(test_validators);
+    RUN_TEST(test_info_settings_roundtrip_at_max_length);
+    RUN_TEST(test_info_validators);
+    RUN_TEST(test_today_counters_in_the_settings_record);
     RUN_TEST(test_token_and_code_generation);
     RUN_TEST(test_pair_window_accepts_the_code_once_in_time);
     RUN_TEST(test_pair_window_expires_and_locks_after_wrong_tries);

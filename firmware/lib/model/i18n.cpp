@@ -38,7 +38,13 @@ const char *langCode(Lang l) { return l == Lang::Uk ? "uk" : "en"; }
     X(T_NOT_SAVED, "Not saved: forgotten after restart", "Діє лише до перезапуску") \
     X(T_PAIR_TITLE, "PAIR A COMPUTER", "ПІДКЛЮЧЕННЯ КОМП’ЮТЕРА") X(T_PAIR_ENTER, "Type this code on your PC:", "Введи код на комп’ютері:") \
     X(T_PAIR_VALID, "The code works for 5 minutes", "Код діє 5 хвилин") \
-    X(T_U_DAY, "d", "д") X(T_U_HOUR, "h", "г") X(T_U_MIN, "m", "хв") X(T_Q_OPEN, "\"", "«") X(T_Q_CLOSE, "\"", "»")
+    X(T_U_DAY, "d", "д") X(T_U_HOUR, "h", "г") X(T_U_MIN, "m", "хв") X(T_Q_OPEN, "\"", "«") X(T_Q_CLOSE, "\"", "»") \
+    X(T_ALERT, "Air raid alert", "Тривога") X(T_ALERT_DRONE, "Drones", "Дрони") X(T_ALERT_MISSILE, "Missiles", "Ракети") \
+    X(T_TODAY, "Today", "Сьогодні") X(T_FEELS, "feels", "відчув.") X(T_MPS, "m/s", "м/с") \
+    X(T_ANSWERS, "ans.", "відп.") X(T_COMMIT1, "commit", "коміт") X(T_COMMIT2, "commits", "коміти") \
+    X(T_COMMIT5, "commits", "комітів") X(T_W_CLEAR, "clear", "ясно") X(T_W_CLOUDS, "cloudy", "хмарно") \
+    X(T_W_RAIN, "rain", "дощ") X(T_W_DRIZZLE, "drizzle", "мряка") X(T_W_SNOW, "snow", "сніг") \
+    X(T_W_STORM, "storm", "гроза") X(T_W_FOG, "fog", "туман")
 
 #define DEF(id, en, uk) static const char id##_en[] PROGMEM = en; static const char id##_uk[] PROGMEM = uk;
 TEXTS(DEF)

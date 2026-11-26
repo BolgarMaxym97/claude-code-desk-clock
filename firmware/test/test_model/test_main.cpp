@@ -231,6 +231,19 @@ void test_night_idle_sleeps_and_idle_notification_does_not_wake() {
     TEST_ASSERT_EQUAL(int(Screen::Sleep), int(m.view(7000, night()).screen));
 }
 
+void test_alert_wakes_the_clock_dimmed_at_night() {
+    Model m;
+    m.onEvent(ev("a", Ev::SessionStart), 0);
+    TEST_ASSERT_EQUAL(int(Screen::Sleep), int(m.view(5000, night()).screen));
+    m.setAlert(true);
+    View v = m.view(6000, night());
+    TEST_ASSERT_EQUAL(int(Screen::Clock), int(v.screen));
+    TEST_ASSERT_EQUAL(20, int(v.brightness));
+    TEST_ASSERT_EQUAL(int(Screen::Clock), int(m.view(3 * 60 * MIN, day()).screen));  // away by day too
+    m.setAlert(false);
+    TEST_ASSERT_EQUAL(int(Screen::Sleep), int(m.view(7000, night()).screen));
+}
+
 void test_day_brightness_80() {
     Model m;
     m.onEvent(ev("a", Ev::SessionStart), 0);
@@ -284,6 +297,22 @@ void test_greeting_after_a_long_silence() {
     m.onEvent(ev("a", Ev::Stop), 1000 + 32 * MIN);
     m.onEvent(ev("a", Ev::UserPromptSubmit), 1000 + 33 * MIN);  // short pause: no greeting
     TEST_ASSERT_FALSE(m.greeting(1000 + 33 * MIN + 1000));
+}
+
+void test_commits_are_counted_even_when_push_wins() {
+    Model m;
+    EventIn e = ev("a", Ev::PostToolUse, "Bash", "git commit -m x && git push");
+    e.kinds = "commit,push";
+    m.onEvent(e, 1000);
+    EventIn f = ev("a", Ev::PostToolUse, "Bash", "git commit -m y");  // old computer: no kinds, from the target
+    m.onEvent(f, 2000);
+    EventIn g = ev("a", Ev::PostToolUseFailure, "Bash", "git commit -m z");  // failed: not a commit
+    g.kinds = "commit";
+    m.onEvent(g, 3000);
+    EventIn h = ev("a", Ev::PostToolUse, "Bash", "git push");
+    h.kinds = "push";
+    m.onEvent(h, 4000);
+    TEST_ASSERT_EQUAL(2, int(m.commitCount()));
 }
 
 void test_reaction_from_host_kinds() {  // the computer sends what the whole command did; push wins over commit
@@ -490,10 +519,12 @@ int main() {
     RUN_TEST(test_greeting_after_a_long_silence);
     RUN_TEST(test_bash_reactions);
     RUN_TEST(test_reaction_from_host_kinds);
+    RUN_TEST(test_commits_are_counted_even_when_push_wins);
     RUN_TEST(test_bash_reactions_from_target_text);
     RUN_TEST(test_model_remembers_reaction_tool_time_and_edits);
     RUN_TEST(test_working_shows_at_night_dimmed);
     RUN_TEST(test_night_idle_sleeps_and_idle_notification_does_not_wake);
+    RUN_TEST(test_alert_wakes_the_clock_dimmed_at_night);
     RUN_TEST(test_day_brightness_80);
     RUN_TEST(test_unsynced_time_is_not_night);
     RUN_TEST(test_unsynced_boot_replaces_idle_screens_only);

@@ -25,6 +25,9 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 - **Usage limits**: two vertical gauges (5 h and 7 d). From 70% up, each gauge also shows the time until reset
   and a pace mark.
 - **Time and date** (synced over the internet), and a calm screen at night.
+- **Optional info line** under the mascot, changing every 5 s: the **weather** (your own free OpenWeather key, with an icon)
+  and **today with Claude**: how long Claude worked, how many answers and commits. For Ukraine, an **air-raid alert** for your region takes over
+  the line in red and wakes the clock (dimmed) at night. Each one can be switched off.
 - **Mascot animations**: daily scenes, weather and time-of-day events, holidays, rare surprises,
   and a Santa hat from Dec 25 to Jan 7.
 
@@ -74,7 +77,8 @@ irm https://raw.githubusercontent.com/BolgarMaxym97/claude-code-desk-clock/main/
 ```
 
 The installer downloads the small `claude-clock` program and finds the clock on your network. The clock then shows a
-6-character code: type it in, then pick the clock language (Enter = English). Confirm the change to Claude Code settings (a backup is made first), then restart
+6-character code: type it in, then pick the clock language (Enter = English). Optional questions follow: an OpenWeather key and city for
+the weather, and (on a computer set to the Ukrainian time zone) the air-raid alert region; Enter skips each. Confirm the change to Claude Code settings (a backup is made first), then restart
 Claude Code. That's it.
 
 To add another computer, run the same line there. Each computer gets its own code.
@@ -88,6 +92,9 @@ To add another computer, run the same line there. Each computer gets its own cod
 | `claude-clock config --lang uk` | Clock language: `en` (default) or `uk` |
 | `claude-clock config --birthday 11-20` | Show a birthday animation on that day (`off` to remove) |
 | `claude-clock config --tz auto` | Send this computer's timezone to the clock (done at setup) |
+| `claude-clock config --weather-key <key>` | Weather on the clock: a free key from [openweathermap.org](https://openweathermap.org/api) (`off` to remove). New keys start working after up to 2 hours |
+| `claude-clock config --city Kyiv` | Weather location: a city name or `50.45,30.52` |
+| `claude-clock config --alerts "м. Київ"` | Air-raid alerts (Ukraine) for a region; `list` shows all regions, `off` switches alerts off |
 | `claude-clock setup` | Pair again (new clock, new IP, new computer) |
 | `claude-clock uninstall` | Remove the hooks and restore your own statusline |
 
@@ -121,6 +128,10 @@ If the clock cannot reach its network for about 2–3 minutes, it shows the QR c
     (the command itself is checked on your computer).
 
   Nothing else from Claude Code is read or stored.
+- **Weather and alerts** are fetched by the clock itself, over plain HTTP (the chip has no TLS):
+  `api.openweathermap.org` with your key and location, `ubilling.net.ua/aerialalerts` with no data from you.
+  The alert data is informational: follow official sources. The OpenWeather key is stored on the clock and in
+  `claude-clock`'s config file, and `claude-clock status` never prints it.
 - This goes over plain HTTP on your home network and is protected by a per-clock token. The clock generates the token
   itself and gives it only to a computer that types the code shown on its screen. Don't use the clock on networks
   you don't trust.

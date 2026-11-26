@@ -66,6 +66,11 @@ constexpr int VERB_Y = 112, TARGET_Y = 146, DETAIL_Y = 172;
 constexpr int TIME_Y = 12, SMALL_Y = 96, SMALL_PX = 5, CARD_Y = 152, CARD_H = 34;
 constexpr int TIME_CLEAR_TOP = 26;                  // clock: time area is cleared from here down to STAGE_Y
 constexpr int STAGE_Y = 80, STAGE_H = 70;           // clock: idle mascot stage (4-bit sprite) between the gauges
+// The stage is drawn at 184x70 and shown 1.2x larger (5 px sprite pixels -> 6 px), cropped to the column.
+constexpr int STAGE_SHOW_H = 84;                    // 70 * 1.2
+constexpr int INFO_X = CL + 2, INFO_W = CR - CL - 4, INFO_Y = 170, INFO_H = 42;  // info card under the mascot
+constexpr int INFO_DOTS_Y = 226;                    // rotation dots, between the two reset timers
+constexpr int INFO_TEXT_DX = 36, INFO_PAD_R = 6;     // card: 24 px icon at x+8, text from x+36 to the right edge - 6
 constexpr int SLEEP_TIME_Y = 40, SLEEP_DATE_Y = 120, SLEEP_CLEAR_TOP = 30, SLEEP_CLEAR_BOTTOM = 140;
 constexpr int SLEEP_STAGE_Y = 134, SLEEP_SPRITE_Y = 156;
 constexpr int YEAR_Y = 172, YEAR_CLEAR_H = 40;      // New Year midnight banner (clock screen)

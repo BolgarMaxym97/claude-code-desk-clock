@@ -16,6 +16,7 @@ type Config struct {
 	URL   string `json:"url"`            // http://<ip>  (IP: name lookups are too slow for hooks)
 	Host  string `json:"host,omitempty"` // mDNS name used to find the clock again if its IP changes
 	Token string `json:"token"`
+	OWM   string `json:"owm,omitempty"` // OpenWeather key, for city look-ups (the clock has its own copy)
 }
 
 // Dir: $CLOCK_CONFIG_DIR, else %APPDATA%\claude-clock (Windows) or $XDG_CONFIG_HOME|~/.config/claude-clock.
