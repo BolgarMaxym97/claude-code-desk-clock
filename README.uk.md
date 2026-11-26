@@ -11,6 +11,7 @@
 <p align="center">
   <img src="docs/media/cover.png" alt="Claude Code Desk Clock">
 </p>
+
 https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 
 > Неофіційний фанатський проєкт. Не пов'язаний з Anthropic і не підтримується нею.
