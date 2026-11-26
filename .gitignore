@@ -1,0 +1,22 @@
+# secrets (optional developer defaults: Wi-Fi, token, static IP)
+firmware/include/secrets.h
+
+# build output
+firmware/.pio/
+host/claude-clock
+host/claude-clock.exe
+dist/
+
+# local-only notes and experiments
+PROJECT.md
+design/
+mac/
+spike-*/
+.superpowers/
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
+__pycache__/
+.venv/

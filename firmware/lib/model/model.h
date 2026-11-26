@@ -1,0 +1,135 @@
+// Pure C++ state model of the Claude Clock (no Arduino deps -> unit-tested natively).
+#pragma once
+#include <cstdint>
+#include <string>
+#include <vector>
+
+enum class Ev {
+    SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure,
+    SubagentStart, SubagentStop, PreCompact, NotifyPermission, NotifyIdle,
+    Stop, StopFailure, SessionEnd, Unknown
+};
+
+enum class SState { Idle, Thinking, Working, Compacting, Permission, YourTurn, Error };
+
+// What a finished Bash command meant (for a short reaction on the work screen).
+enum class Reaction { None, TestsOk, TestsFail, Commit, Push, Install, Docker };
+// target: the command (truncated by the hook); ok: PostToolUse (true) or PostToolUseFailure (false).
+Reaction classifyBash(const std::string &target, bool ok);
+
+struct EventIn {
+    std::string session, project, branch, tool, target;
+    Ev ev;
+};
+
+struct ClaudeSession {
+    std::string id, project, branch, tool, target;
+    SState state = SState::Idle;
+    uint8_t agents = 0;
+    uint32_t sinceMs = 0;   // when the current state began
+    uint32_t lastMs = 0;    // last event of this session
+    uint32_t promptMs = 0;  // last UserPromptSubmit (for "done in N")
+    uint32_t toolMs = 0;    // when the current tool started (long Bash -> hourglass)
+    int edits = 0;          // Edit/Write calls since the last prompt (many -> paper pile)
+    bool hasPrompt = false;
+};
+
+// hookName: Claude Code hook event name; kind: "permission" | "idle" | "" (Notification only)
+Ev parseEvent(const char *hookName, const char *kind);
+
+// Timeouts / limits (spec 6.6)
+constexpr uint32_t IDLE_TTL_MS = 30u * 60u * 1000u;      // idle / your-turn / error session without events
+constexpr uint32_t BUSY_TTL_MS = 2u * 3600u * 1000u;     // working session without events (long builds)
+constexpr size_t MAX_SESSIONS = 6;
+
+struct LocalTime {
+    bool synced;   // false until NTP: then hour/day are bogus (1970) and must not drive night logic
+    int hour, min, month, day, wday;
+    int year = 0;  // e.g. 2027; 0 = unknown
+};
+
+enum class Screen {
+    Boot, FirstSetup, Clock, Sleep, Working, Multi, Permission, YourTurn,
+    Error, Done, Hello, LimitReached, MacSilent
+};
+
+// Screen to show while Wi-Fi is lost (after time is known): Claude's state would be stale.
+Screen offlineScreen(Screen s);
+
+// Time to the limit reset, shown under a gauge from 70 %: two short grey lines ("2г"/"14х", "3д"/"4г", "45х"/"").
+struct ResetLines { std::string a, b; };
+ResetLines resetLines(long secondsLeft, bool sevenDay);
+inline bool showResetTimer(int pct) { return pct >= 70; }
+// How much of the limit window has passed, 0..100 (-1: reset time unknown) -> white pace mark on the gauge.
+int pacePercent(uint32_t resetsAt, uint32_t nowEpoch, uint32_t windowSec);
+
+struct View {
+    Screen screen;
+    const ClaudeSession *focus;   // session the screen is about (may be null)
+    bool night;
+    uint8_t brightness;     // percent
+};
+
+struct Limit {
+    int pct = 0;
+    uint32_t resetsAt = 0;  // epoch seconds
+};
+
+constexpr uint32_t DONE_SHOW_MS = 6000;
+constexpr uint32_t HELLO_SHOW_MS = 3000;
+constexpr uint32_t AWAY_SLEEP_MS = 60u * 60u * 1000u;  // day: no Mac events for an hour -> mascot sleeps too
+constexpr uint32_t EVENING_SLEEP_MS = 30u * 60u * 1000u;  // after 18:00: work is over sooner
+constexpr int EVENING_FROM_H = 18;
+constexpr uint32_t BORED_MS = 30u * 60u * 1000u;       // day: 30 min without events -> "bored" scene
+constexpr uint32_t GREET_SHOW_MS = 8000;               // first event after BORED_MS -> greeting
+constexpr uint32_t LIMITS_STALE_MS = 10u * 60u * 1000u;
+constexpr uint8_t BRIGHT_DAY = 80, BRIGHT_NIGHT = 20;
+constexpr int NIGHT_FROM_H = 23, NIGHT_TO_H = 7;
+
+bool isNight(const LocalTime &t);
+
+// Claude is actively doing something in this session (drives the "working" screens).
+bool isWorking(const ClaudeSession &s);
+
+class Model {
+public:
+    void onEvent(const EventIn &e, uint32_t nowMs);
+    void tick(uint32_t nowMs);  // expire stale sessions
+
+    const ClaudeSession *find(const std::string &id) const;
+    const std::vector<ClaudeSession> &sessions() const { return sessions_; }
+    size_t count() const { return sessions_.size(); }
+    size_t busyCount() const;
+    // Sessions existed but all expired without SessionEnd, and nothing arrived since.
+    bool macSilent(uint32_t nowMs) const { (void)nowMs; return silent_; }
+    uint32_t lastDoneDurationMs() const { return doneDurationMs_; }
+    uint32_t lastDoneAtMs() const { return doneAtMs_; }
+    uint32_t lastHelloAtMs() const { return helloAtMs_; }
+    uint32_t lastEventMs() const { return lastEventMs_; }
+    uint32_t quietMs(uint32_t nowMs) const { return nowMs - lastEventMs_; }  // since the last Mac event (or boot)
+    bool greeting(uint32_t nowMs) const { return greetSeen_ && nowMs - greetAtMs_ < GREET_SHOW_MS; }
+    Reaction reaction() const { return reaction_; }
+    uint32_t reactionAtMs() const { return reactionAtMs_; }
+    bool everHadEvent() const { return everEvent_; }
+
+    View view(uint32_t nowMs, const LocalTime &t) const;
+
+    void onLimits(int h5pct, uint32_t h5reset, int d7pct, uint32_t d7reset, uint32_t nowMs);
+    const Limit &limit5h() const { return h5_; }
+    const Limit &limit7d() const { return d7_; }
+    bool hasLimits() const { return hasLimits_; }
+    bool limitsStale(uint32_t nowMs) const { return !hasLimits_ || nowMs - limitsRxMs_ > LIMITS_STALE_MS; }
+
+private:
+    ClaudeSession *findMut(const std::string &id);
+    ClaudeSession &create(const std::string &id, uint32_t nowMs);
+    std::vector<ClaudeSession> sessions_;
+    bool silent_ = false, everEvent_ = false, greetSeen_ = false;
+    uint32_t greetAtMs_ = 0, reactionAtMs_ = 0;
+    Reaction reaction_ = Reaction::None;
+    uint32_t doneDurationMs_ = 0, doneAtMs_ = 0, helloAtMs_ = 0, lastEventMs_ = 0;
+    bool doneSeen_ = false, helloSeen_ = false;
+    Limit h5_, d7_;
+    bool hasLimits_ = false;
+    uint32_t limitsRxMs_ = 0;
+};

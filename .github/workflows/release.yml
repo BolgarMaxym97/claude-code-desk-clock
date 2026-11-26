@@ -1,0 +1,54 @@
+# Push a tag like v1.0.0 -> GitHub release with the clock firmware and the claude-clock program.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host/go.mod
+      - run: pip install platformio
+      - name: Version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: |
+          (cd firmware && pio test -e native)
+          (cd host && go test ./...)
+
+      - name: Firmware
+        working-directory: firmware
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DFW_VERSION=\"${{ env.VERSION }}\"
+        run: |
+          pio run -e clock
+          mkdir -p ../dist
+          # the stock clock's update page only accepts files whose name starts with "SDP"
+          cp .pio/build/clock/firmware.bin "../dist/SDP_claude-clock-v$VERSION.bin"
+          (cd ../dist && sha256sum "SDP_claude-clock-v$VERSION.bin" > "SDP_claude-clock-v$VERSION.bin.sha256")
+
+      - name: claude-clock program
+        working-directory: host
+        run: |
+          for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+              -o "../dist/claude-clock-$os-$arch$ext" ./cmd/claude-clock
+          done
+          cd ../dist && sha256sum claude-clock-* > checksums.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
