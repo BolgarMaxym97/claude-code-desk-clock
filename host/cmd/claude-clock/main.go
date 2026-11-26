@@ -76,10 +76,10 @@ func main() {
 func usage() {
 	fmt.Print(`claude-clock ` + version + ` — Claude Code activity on a desk clock
 
-  claude-clock setup [--ip 192.168.1.50] [--yes]   find & pair the clock, register Claude Code hooks
+  claude-clock setup [--ip 192.168.1.50] [--lang en|uk] [--yes]   find & pair the clock, register Claude Code hooks
   claude-clock status                              clock address, firmware, what it shows
   claude-clock update [--file firmware.bin]        install the latest clock firmware from GitHub
-  claude-clock config --tz auto|<IANA name> | --birthday MM-DD|off
+  claude-clock config --lang en|uk | --tz auto|<IANA name> | --birthday MM-DD|off
   claude-clock uninstall [--yes]                   remove hooks, restore your statusline
 `)
 }
@@ -269,7 +269,7 @@ func has(args []string, name string) bool {
 func findClock(args []string) (string, error) {
 	if ip, ok := flag(args, "--ip"); ok {
 		u := "http://" + strings.TrimPrefix(strings.TrimPrefix(ip, "http://"), "https://")
-		if _, err := clock.GetStatus(u, 3*time.Second); err != nil {
+		if _, err := clock.StatusRetry(u, 5*time.Second, 3); err != nil {
 			return "", fmt.Errorf("no Claude Clock at %s: %v", u, err)
 		}
 		return u, nil
@@ -303,7 +303,7 @@ func setup(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, _ := clock.GetStatus(u, 3*time.Second)
+	st, _ := clock.StatusRetry(u, 5*time.Second, 3)
 	fmt.Printf("Found Claude Clock %s at %s\n", st.FW, u)
 	if err := clock.PairStart(u); err != nil {
 		return fmt.Errorf("could not start pairing: %v", err)
@@ -330,6 +330,9 @@ func setup(args []string) error {
 	fmt.Println("Paired. Settings saved in", cfg.Dir())
 	if err := sendTZ(c, ""); err != nil {
 		fmt.Println("  (timezone not sent:", err, ")")
+	}
+	if err := sendLang(c, askLang(args, auto)); err != nil {
+		fmt.Println(" ", err)
 	}
 	return registerHooks(auto)
 }
@@ -439,7 +442,7 @@ func status() error {
 	if err != nil {
 		return err
 	}
-	st, err := clock.GetStatus(c.URL, 3*time.Second)
+	st, err := clock.StatusRetry(c.URL, 5*time.Second, 3)
 	if err != nil {
 		return fmt.Errorf("clock not reachable at %s (%v); run `claude-clock setup` if its address changed", c.URL, err)
 	}
@@ -481,6 +484,16 @@ func config(args []string) error {
 	done := false
 	if v, ok := flag(args, "--tz"); ok {
 		if err := sendTZ(c, v); err != nil {
+			return err
+		}
+		done = true
+	}
+	if v, ok := flag(args, "--lang"); ok {
+		code, ok := langAnswer(v)
+		if !ok {
+			return fmt.Errorf("unknown language %q: use en or uk", v)
+		}
+		if err := sendLang(c, code); err != nil {
 			return err
 		}
 		done = true

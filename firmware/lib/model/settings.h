@@ -14,6 +14,7 @@ struct Settings {
     std::string token;           // API token (32 chars), made on first boot
     std::string tz;              // POSIX TZ string; empty = default (Kyiv)
     int birthMonth = 0, birthDay = 0;  // 0 = no birthday scene
+    std::string lang;            // "en" / "uk"; empty = English
 };
 
 std::vector<uint8_t> encodeSettingsRec(uint32_t seq, const Settings &s);

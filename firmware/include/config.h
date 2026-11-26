@@ -37,6 +37,8 @@ constexpr uint16_t PINK = rgb565(0xE8, 0x40, 0x30);
 constexpr uint16_t GREEN = rgb565(0x50, 0xC0, 0x20);
 constexpr uint16_t BLUE = rgb565(0x6A, 0xA6, 0xF8);
 constexpr uint16_t TRACK = rgb565(0x1C, 0x18, 0x12);
+constexpr uint16_t CHIP_WARN = rgb565(0x60, 0x10, 0x08);  // percent chip at >= 90 %
+constexpr uint16_t CHIP = rgb565(0x4C, 0x2E, 0x0A);   // gauge label chip: warm dark amber (the panel adds blue to neutral greys)
 constexpr uint16_t EYE = rgb565(0x00, 0x00, 0x00);
 constexpr uint16_t LID = rgb565(0x70, 0x20, 0x00);
 constexpr uint16_t GREY_BODY = rgb565(0x40, 0x38, 0x30);
@@ -50,9 +52,15 @@ constexpr uint16_t SLEEP_INK = rgb565(0x50, 0x42, 0x30);
 namespace lay {
 constexpr int CL = 28, CR = 212, CX = 120;     // content column between the gauges
 constexpr int TOP_BASE = 20, BOTTOM_BASE = 230; // shared text baselines
-constexpr int GAUGE_TOP = 30, GAUGE_BOTTOM = 208, GAUGE_W = 7;
-// With the reset timer (>= 70 %): shorter bar, % moves up, two grey lines under it.
-constexpr int GAUGE_BOTTOM_T = 180, PCT_BASE_T = 202, RESET1_BASE = 216, RESET2_BASE = 230;
+// Both gauges: label (5h, 7d) on a chip at the top, then the bar (same length always), then % and time to reset.
+constexpr int CHIP_Y = 26, CHIP_H = 19, CHIP_W = 28, CHIP_SHIFT = 1;  // both chips (label, percent): same size, 1 px inwards;
+constexpr int LABEL_BASE = 41;                                       // label chip under the top row, as far from the top as the % chip from the bottom
+constexpr int TOP_L = 6, TOP_R = 234, DOT_STEP = 11;
+constexpr int TOPROW_BASE = 16;  // time / date / session dots: a little higher than the setup-screen titles (TOP_BASE)                                 // the top row spans the whole width
+constexpr int GAUGE_TOP = 49, GAUGE_BOTTOM = 191, GAUGE_W = 8;
+constexpr int PCT_CHIP_Y = 195, PCT_BASE = 210;  // percent on its own chip, like the label
+constexpr int TIMER_BASE = 231;
+constexpr int TIMER_HALF = 16, TIMER_SHIFT = 3;  // timer row: up to 32 px, centred 3 px inwards (screen bottom is free there)
 constexpr int HERO_X = CL, HERO_Y = 44, HERO_W = 184, HERO_H = 60, HERO_PX = 6;
 constexpr int VERB_Y = 112, TARGET_Y = 146, DETAIL_Y = 172;
 constexpr int TIME_Y = 12, SMALL_Y = 96, SMALL_PX = 5, CARD_Y = 152, CARD_H = 34;

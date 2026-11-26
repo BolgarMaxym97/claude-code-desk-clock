@@ -7,7 +7,10 @@
 #include <string>
 #include "config.h"
 #include "fonts.h"
+#include "i18n.h"
+#include "model.h"
 #include "idle.h"
+#include "scene.h"
 #include "sprites.h"
 
 void setUp() {}
@@ -66,8 +69,9 @@ static void above(Box a, int belowTop, int gap, const char *what) {
 
 static const char *DIGITS = "0123456789:";
 static Box topBar() {
-    Box a = ink(F_TOP, "СР 25 ЛИСТ НД ВТ ЧТ", lay::TOP_BASE, BASELINE), b = ink(F_LIM, "5h7d", lay::TOP_BASE, BASELINE);
-    return Box{a.top < b.top ? a.top : b.top, a.bottom > b.bottom ? a.bottom : b.bottom};
+    Box a = ink(F_TOP, "СР 25.11 НД ВТ ЧТ ПН ПТ СБ 23:59 +9", lay::TOPROW_BASE, BASELINE);
+    TEST_ASSERT_TRUE_MESSAGE(a.top >= 3, "top row too close to the screen edge");
+    return a;
 }
 
 void test_clock_screen() {
@@ -84,7 +88,7 @@ void test_clock_screen() {
     Box year = ink(F_H, "2027", lay::YEAR_Y, MIDDLE);
     inside(year, lay::YEAR_Y - lay::YEAR_CLEAR_H / 2, lay::YEAR_Y + lay::YEAR_CLEAR_H / 2, "year not cleared");
     TEST_ASSERT_TRUE_MESSAGE(year.top >= lay::STAGE_Y + lay::STAGE_H, "year overlaps the stage");
-    inside(ink(F_LIM, "100", lay::BOTTOM_BASE, BASELINE), 0, 240, "percent off screen");
+    
 }
 
 static int advance(const uint8_t *f, const std::string &s) {
@@ -97,19 +101,37 @@ static int advance(const uint8_t *f, const std::string &s) {
     return w;
 }
 
-void test_reset_timer_under_gauge() {
-    Box pct = ink(F_LIM, "100", lay::PCT_BASE_T, BASELINE);
-    Box l1 = ink(F_S3, "2г14х3д4г05х", lay::RESET1_BASE, BASELINE), l2 = ink(F_S3, "2г14х3д4г05х", lay::RESET2_BASE, BASELINE);
-    TEST_ASSERT_TRUE_MESSAGE(lay::GAUGE_BOTTOM_T + 3 <= pct.top, "bar touches the percent");
-    above(pct, l1.top, 1, "percent touches the first timer line");
-    above(l1, l2.top, 0, "timer lines overlap");
-    TEST_ASSERT_TRUE(l2.bottom <= 240);
-    const char *W[] = {"14х", "05х", "45х", "23г", "6д", "100"};
-    for (const char *w : W) TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w) <= 26, w);  // fits the 26 px gauge column
+void test_gauge_label_chip_and_rows() {  // drawGauge(): label on a chip at the top, bar, then % / timer rows
+    Box lab = ink(F_LIM, "5h7d", lay::LABEL_BASE, BASELINE);
+    TEST_ASSERT_TRUE_MESSAGE(lab.top >= lay::CHIP_Y + 1 && lab.bottom <= lay::CHIP_Y + lay::CHIP_H - 1, "label leaves its chip");
+    TEST_ASSERT_TRUE_MESSAGE(advance(F_LIM, "5h") + 4 <= lay::CHIP_W, "label wider than the chip");
+    TEST_ASSERT_TRUE_MESSAGE(lay::CHIP_Y >= topBar().bottom + 2, "label chip touches the top row");
+    // symmetric: label chip as far from the top edge as the percent chip from the bottom edge
+    TEST_ASSERT_INT_WITHIN_MESSAGE(1, lay::CHIP_Y, 240 - (lay::PCT_CHIP_Y + lay::CHIP_H), "chips not symmetric");
+    TEST_ASSERT_TRUE_MESSAGE(lay::TOP_L <= 8 && lay::TOP_R >= 232, "top row does not use the full width");
+    TEST_ASSERT_TRUE_MESSAGE(13 + lay::CHIP_SHIFT - lay::CHIP_W / 2 >= 0, "chip leaves the screen");
+    TEST_ASSERT_TRUE_MESSAGE(lay::CHIP_Y + lay::CHIP_H + 4 <= lay::GAUGE_TOP, "bar starts at the chip");
+    Box pct = ink(F_LIM, "100", lay::PCT_BASE, BASELINE);
+    Box tim = ink(F_S3, "4:59 23г 45хв 6д 0хв", lay::TIMER_BASE, BASELINE);
+    // percent on its own chip (like the label): chip holds the digits, sits between the bar and the timer
+    const int pcTop = lay::PCT_CHIP_Y, pcBottom = lay::PCT_CHIP_Y + lay::CHIP_H;
+    TEST_ASSERT_TRUE_MESSAGE(pct.top >= pcTop + 1 && pct.bottom <= pcBottom - 1, "percent leaves its chip");
+    TEST_ASSERT_TRUE_MESSAGE(advance(F_LIM, "100") + 2 <= lay::CHIP_W, "100 wider than its chip");
+    TEST_ASSERT_TRUE_MESSAGE(lay::GAUGE_BOTTOM + 3 <= pcTop, "bar touches the percent chip");
+    TEST_ASSERT_TRUE_MESSAGE(pcBottom + 2 <= tim.top, "percent chip touches the timer");
+    TEST_ASSERT_TRUE_MESSAGE(tim.bottom <= 240, "timer off screen");
+    const char *W[] = {"4:59", "1:05", "23г", "45хв", "6д"};
+    // the timer row may be up to 32 px: below y=190 nothing else is drawn next to the gauges
+    TEST_ASSERT_TRUE_MESSAGE(13 + lay::TIMER_SHIFT - lay::TIMER_HALF >= 0, "timer row leaves the screen");
+    for (const char *w : W) TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(2 * lay::TIMER_HALF, advance(F_S3, w), w);
+    TEST_ASSERT_TRUE(advance(F_LIM, "100") <= 26);
+    TEST_ASSERT_TRUE_MESSAGE(pcTop >= lay::DETAIL_Y - 2 + 20, "percent chip reaches the work detail line");
+    TEST_ASSERT_TRUE_MESSAGE(pcTop >= lay::CARD_Y + lay::CARD_H, "percent chip reaches the info card");
+    TEST_ASSERT_TRUE_MESSAGE(tim.top >= lay::CARD_Y + lay::CARD_H, "timer row reaches the info card");
 }
 
 void test_sleep_screen() {
-    Box time = ink(F_TIME_S, DIGITS, lay::SLEEP_TIME_Y, TOP), date = ink(F_TOP, "СР 25 ЛИСТ", lay::SLEEP_DATE_Y, TOP);
+    Box time = ink(F_TIME_S, DIGITS, lay::SLEEP_TIME_Y, TOP), date = ink(F_TOP, "СР 25.11", lay::SLEEP_DATE_Y, TOP);
     inside(time, lay::SLEEP_CLEAR_TOP, lay::SLEEP_CLEAR_BOTTOM, "sleep time not cleared");
     inside(date, lay::SLEEP_CLEAR_TOP, lay::SLEEP_CLEAR_BOTTOM, "sleep date not cleared");
     above(time, date.top, 3, "sleep time touches the date");
@@ -161,6 +183,17 @@ void test_setup_qr_page() {
     TEST_ASSERT_TRUE(hint.bottom <= 240);
 }
 
+void test_work_top_bar_has_time_and_date() {  // topBar() on work screens: "HH:MM  DAY DD MON" ... "● busy/total"
+    int left = advance(F_TOP, "23:59  СР 30.09"), right = 6 * lay::DOT_STEP + 4 + advance(F_TOP, "+9");  // 6 dots + "+N"
+    TEST_ASSERT_TRUE_MESSAGE(left + 6 + right <= lay::TOP_R - lay::TOP_L, "time + date run into the session counter");
+}
+
+void test_setup_result_texts_fit() {  // drawSetup() page 3: the reason is centred in F_H on a 240 px screen
+    const char *R[] = {"Невірний пароль", "Мережі не видно", "Не підключився", "Немає адреси"};
+    for (const char *r : R) TEST_ASSERT_TRUE_MESSAGE(advance(F_H, r) <= 228, r);
+    TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, "Роутер не видав IP-адресу (DHCP)") <= 228, "dhcp hint");
+}
+
 void test_pairing_screen_texts_fit() {  // drawPair(): widths on a 240 px screen, code inside its 180 px box
     TEST_ASSERT_TRUE_MESSAGE(advance(F_TOP, "ПІДКЛЮЧЕННЯ КОМП’ЮТЕРА") <= 232, "pair title");
     TEST_ASSERT_TRUE_MESSAGE(advance(F_S, "Введи код на комп’ютері:") <= 232, "pair hint");
@@ -170,14 +203,52 @@ void test_pairing_screen_texts_fit() {  // drawPair(): widths on a 240 px screen
     inside(code, 92, 140, "code leaves its box");
 }
 
+void test_texts_fit_in_both_languages() {  // every place a translated text is drawn, for EN and UK
+    for (Lang l : {Lang::En, Lang::Uk}) {
+        setLang(l);
+        const int full = 236, centre = 184;  // whole screen; content between the gauges
+        Txt verbs[] = {T_V_RUN, T_V_EDIT, T_V_READ, T_V_DELEGATE, T_V_SEARCH, T_V_WORK, T_V_THINK, T_V_COMPACT,
+                       T_V_ALLOW, T_V_YOURTURN, T_V_ERROR, T_DONE, T_V_HELLO, T_LIMIT};
+        for (Txt t : verbs) TEST_ASSERT_TRUE_MESSAGE(advance(F_H, tr(t)) <= centre - 4, tr(t));
+        for (Txt t : {T_WHY_FAIL, T_WHY_PASS, T_WHY_NOSSID, T_WHY_NOIP, T_CONNECTED})
+            TEST_ASSERT_TRUE_MESSAGE(advance(F_H, tr(t)) <= 228, tr(t));
+        for (Txt t : {T_STEP1, T_STEP2, T_STEP3, T_STEP3B, T_CHECKING})  // setup steps start at x = 24
+            TEST_ASSERT_TRUE_MESSAGE(24 + advance(F_S, tr(t)) <= full, tr(t));
+        for (Txt t : {T_SCAN_HINT, T_OR_OPEN, T_DHCP_HINT, T_TRY_AGAIN, T_NOT_SAVED, T_PAIR_VALID, T_SYNCING})
+            TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, tr(t)) <= 228, tr(t));
+        TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, (std::string(tr(T_CONNECTING)) + "99").c_str()) <= 228, "connecting");
+        TEST_ASSERT_TRUE_MESSAGE(advance(F_S, tr(T_PAIR_ENTER)) <= 228, tr(T_PAIR_ENTER));
+        for (Txt t : {T_PAIR_TITLE, T_SETUP_TITLE}) TEST_ASSERT_TRUE_MESSAGE(advance(F_TOP, tr(t)) <= 228, tr(t));
+        int cardW = lay::CR - lay::CL - 4;  // silent / offline card: text at x+10, minutes right-aligned at x+w-8
+        for (Txt t : {T_SILENT, T_NO_WIFI})
+            TEST_ASSERT_TRUE_MESSAGE(10 + advance(F_S, tr(t)) + 6 + advance(F_LIM, "999′") + 8 <= cardW, tr(t));
+        // top row on work screens: "HH:MM  date" + up to 6 session dots and "+N"
+        int top = advance(F_TOP, ("23:59  " + dateShort(3, 30, 9)).c_str()) + 6 + 6 * lay::DOT_STEP + 4 + advance(F_TOP, "+9");
+        TEST_ASSERT_TRUE_MESSAGE(top <= lay::TOP_R - lay::TOP_L, "top row");
+        // holiday caption card: caption + date (drawCaption shortens with "…", but the full text should fit)
+        for (int i = 0; i < sceneCount(); i++) {
+            Scene sc = sceneAt(i);
+            if (sc.kind != SceneKind::Holiday || !sc.caption || !*sc.caption) continue;
+            // drawCaption drops the date when caption + date do not fit; the caption alone must fit
+            TEST_ASSERT_TRUE_MESSAGE(advance(F_S, sceneCaption(sc.name, sc.caption)) <= cardW - 20, sc.name);
+        }
+        for (std::string w : {resetShort(4 * 3600 + 59 * 60, false), resetShort(59 * 60, true), resetShort(23 * 3600, true)})
+            TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w.c_str()) <= 2 * lay::TIMER_HALF, w.c_str());
+    }
+    setLang(Lang::En);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_clock_screen);
     RUN_TEST(test_sleep_screen);
-    RUN_TEST(test_reset_timer_under_gauge);
+    RUN_TEST(test_gauge_label_chip_and_rows);
     RUN_TEST(test_idle_mascot_stays_inside_stage_also_with_hat);
     RUN_TEST(test_work_screens);
     RUN_TEST(test_setup_qr_page);
     RUN_TEST(test_pairing_screen_texts_fit);
+    RUN_TEST(test_setup_result_texts_fit);
+    RUN_TEST(test_work_top_bar_has_time_and_date);
+    RUN_TEST(test_texts_fit_in_both_languages);
     return UNITY_END();
 }

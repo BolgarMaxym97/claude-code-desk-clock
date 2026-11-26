@@ -6,6 +6,7 @@ const char SETTINGS_MAGIC[5] = "CCS1";
 
 std::vector<uint8_t> encodeSettingsRec(uint32_t seq, const Settings &s) {
     std::string p = "token=" + s.token + "\ntz=" + s.tz + "\n";
+    if (!s.lang.empty()) p += "lang=" + s.lang + "\n";
     if (s.birthMonth) {
         char b[16];
         snprintf(b, sizeof b, "birth=%02d-%02d\n", s.birthMonth, s.birthDay);
@@ -29,6 +30,7 @@ bool decodeSettingsRec(const uint8_t *buf, size_t n, uint32_t &seq, Settings &ou
         std::string k = line.substr(0, eq), v = line.substr(eq + 1);
         if (k == "token" && validToken(v)) s.token = v;
         else if (k == "tz" && validTz(v)) s.tz = v;
+        else if (k == "lang" && (v == "en" || v == "uk")) s.lang = v;
         else if (k == "birth") { int m, d; if (parseBirthday(v, m, d)) { s.birthMonth = m; s.birthDay = d; } }
     }
     out = s;

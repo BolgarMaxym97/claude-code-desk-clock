@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 - **Mascot animations**: daily scenes, weather and time-of-day events, holidays, rare surprises,
   and a Santa hat from Dec 25 to Jan 7.
 
-The clock's on-screen language is Ukrainian for now; English is planned. The holiday calendar is Ukrainian.
+The clock speaks English (default) or Ukrainian: pick it on the Wi-Fi setup page or during `claude-clock setup`. The holiday calendar is Ukrainian, with English captions.
 
 ## What you need
 
@@ -74,7 +74,7 @@ irm https://raw.githubusercontent.com/BolgarMaxym97/claude-code-desk-clock/main/
 ```
 
 The installer downloads the small `claude-clock` program and finds the clock on your network. The clock then shows a
-6-character code: type it in. Confirm the change to Claude Code settings (a backup is made first), then restart
+6-character code: type it in, then pick the clock language (Enter = English). Confirm the change to Claude Code settings (a backup is made first), then restart
 Claude Code. That's it.
 
 To add another computer, run the same line there. Each computer gets its own code.
@@ -85,6 +85,7 @@ To add another computer, run the same line there. Each computer gets its own cod
 |---|---|
 | `claude-clock status` | Clock address, firmware version, what it shows now |
 | `claude-clock update` | Install the newest firmware from GitHub over Wi-Fi |
+| `claude-clock config --lang uk` | Clock language: `en` (default) or `uk` |
 | `claude-clock config --birthday 11-20` | Show a birthday animation on that day (`off` to remove) |
 | `claude-clock config --tz auto` | Send this computer's timezone to the clock (done at setup) |
 | `claude-clock setup` | Pair again (new clock, new IP, new computer) |

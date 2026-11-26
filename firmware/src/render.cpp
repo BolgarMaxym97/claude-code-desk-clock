@@ -1,4 +1,5 @@
 #include "render.h"
+#include "model.h"
 #include "config.h"
 #include "fonts.h"
 
@@ -17,33 +18,50 @@ int textWidth(const uint8_t *font, const String &s) {
     return w;
 }
 
-void drawTopBar(const String &left, const String &right, uint16_t rightCol) {
-    tft.fillRect(lay::CL - 2, 0, lay::CR - lay::CL + 4, 26, col::BG);
-    text(F_TOP, left, lay::CL, lay::TOP_BASE, col::MUTED, col::BG, L_BASELINE);
-    if (right.length() == 0) return;
-    int x = lay::CR - textWidth(F_TOP, right);
-    text(F_TOP, right, x, lay::TOP_BASE, rightCol, col::BG, L_BASELINE);
-    tft.fillSmoothCircle(x - 8, 15, 4, rightCol, col::BG);
+void drawTopBar(const String &left, int busy, int total, uint16_t dotCol) {
+    tft.fillRect(lay::TOP_L - 2, 0, lay::TOP_R - lay::TOP_L + 4, lay::CHIP_Y - 1, col::BG);
+    text(F_TOP, left, lay::TOP_L, lay::TOPROW_BASE, col::INK, col::BG, L_BASELINE);
+    SessionDots d = sessionDots(busy, total);
+    int x = lay::TOP_R;
+    if (d.more > 0) {  // "+3" after the dots
+        String m = String("+") + d.more;
+        x -= textWidth(F_TOP, m);
+        text(F_TOP, m, x, lay::TOPROW_BASE, dotCol, col::BG, L_BASELINE);
+        x -= 4;
+    }
+    for (int i = d.shown - 1; i >= 0; i--) {  // filled (busy) first from the left, idle rings after
+        int cx = x - 4 - (d.shown - 1 - i) * lay::DOT_STEP;
+        tft.fillSmoothCircle(cx, lay::TOPROW_BASE - 5, 4, dotCol, col::BG);
+        if (i >= d.filled) tft.fillSmoothCircle(cx, lay::TOPROW_BASE - 5, 2, col::BG, dotCol);
+    }
 }
 
-void drawGauge(int cx, const char *label, int pct, bool warn, bool stale, const char *line1, const char *line2, int pace) {
-    bool timer = line1 && *line1;
-    int bottom = timer ? lay::GAUGE_BOTTOM_T : lay::GAUGE_BOTTOM;
-    uint16_t labelC = stale ? col::DIM : (warn ? col::PINK : col::MUTED);
+static int barX(int cx) { return (cx < 120 ? cx + lay::CHIP_SHIFT : cx - lay::CHIP_SHIFT) - lay::GAUGE_W / 2; }
+
+void drawGaugeBar(int cx, int pct, bool warn, bool stale, int pace, bool full) {
+    int x = barX(cx), bottom = lay::GAUGE_BOTTOM, h = bottom - lay::GAUGE_TOP, fh = h * pct / 100;
     uint16_t fillC = stale ? col::DIM : (warn ? col::RED : col::CLAY);
-    uint16_t pctC = stale ? col::DIM : (warn ? col::PINK : col::INK);
-    tft.fillRect(cx - 13, 0, 26, 240, col::BG);
-    text(F_LIM, label, cx, lay::TOP_BASE, labelC, col::BG, C_BASELINE);
-    int h = bottom - lay::GAUGE_TOP;
-    tft.fillSmoothRoundRect(cx - lay::GAUGE_W / 2, lay::GAUGE_TOP, lay::GAUGE_W, h, 3, col::TRACK, col::BG);
-    int fh = h * pct / 100;
-    if (fh > 0) tft.fillSmoothRoundRect(cx - lay::GAUGE_W / 2, bottom - fh, lay::GAUGE_W, fh, 3, fillC, col::TRACK);
-    if (pace >= 0 && !stale) tft.fillRect(cx - lay::GAUGE_W / 2 - 3, bottom - h * pace / 100 - 1, lay::GAUGE_W + 6, 2, col::INK);
-    text(F_LIM, String(pct), cx, timer ? lay::PCT_BASE_T : lay::BOTTOM_BASE, pctC, col::BG, C_BASELINE);
-    if (timer) {
-        text(F_S3, line1, cx, lay::RESET1_BASE, col::MUTED, col::BG, C_BASELINE);
-        if (line2 && *line2) text(F_S3, line2, cx, lay::RESET2_BASE, col::MUTED, col::BG, C_BASELINE);
-    }
+    if (full) tft.fillSmoothRoundRect(x, lay::GAUGE_TOP, lay::GAUGE_W, h, 3, col::TRACK, col::BG);
+    else if (bottom - fh > lay::GAUGE_TOP + 4) tft.fillRect(x, lay::GAUGE_TOP + 4, lay::GAUGE_W, bottom - fh - lay::GAUGE_TOP - 4, col::TRACK);  // animation: no flicker
+    if (fh > 0) tft.fillSmoothRoundRect(x, bottom - fh, lay::GAUGE_W, fh, 3, fillC, col::TRACK);
+    if (pace >= 0 && !stale) tft.fillRect(x - 3, bottom - h * pace / 100 - 1, lay::GAUGE_W + 6, 2, col::INK);
+}
+
+void drawGauge(int cx, const char *label, int pct, int shownPct, bool warn, bool stale, const char *timer, int pace) {
+    uint16_t textC = stale ? col::DIM : (warn ? col::PINK : col::INK);
+    tft.fillRect(cx - 13, lay::CHIP_Y, 26, 240 - lay::CHIP_Y, col::BG);  // the top row above belongs to drawTopBar
+    int chx = cx < 120 ? cx + lay::CHIP_SHIFT : cx - lay::CHIP_SHIFT;  // chips and bar share this centre
+    tft.fillRect(chx - lay::CHIP_W / 2, lay::CHIP_Y, lay::CHIP_W, lay::CHIP_H, col::BG);
+    tft.fillSmoothRoundRect(chx - lay::CHIP_W / 2, lay::CHIP_Y, lay::CHIP_W, lay::CHIP_H, 5, col::CHIP, col::BG);
+    text(F_LIM, label, chx, lay::LABEL_BASE, stale ? col::DIM : (warn ? col::PINK : col::INK), col::CHIP, C_BASELINE);
+    drawGaugeBar(cx, shownPct, warn, stale, pace, true);
+    int tx = cx < 120 ? cx + lay::TIMER_SHIFT : cx - lay::TIMER_SHIFT;  // a bit inwards: "45хв" / "100" are wider than the column
+    uint16_t chipC = warn && !stale ? col::CHIP_WARN : col::CHIP;
+    tft.fillRect(tx - lay::TIMER_HALF, lay::PCT_CHIP_Y, 2 * lay::TIMER_HALF, lay::CHIP_H, col::BG);
+    tft.fillSmoothRoundRect(chx - lay::CHIP_W / 2, lay::PCT_CHIP_Y, lay::CHIP_W, lay::CHIP_H, 5, chipC, col::BG);
+    text(F_LIM, String(pct), chx, lay::PCT_BASE, warn && !stale ? col::INK : textC, chipC, C_BASELINE);
+    tft.fillRect(tx - lay::TIMER_HALF, lay::TIMER_BASE - 13, 2 * lay::TIMER_HALF, 16, col::BG);
+    if (timer && *timer) text(F_S3, timer, tx, lay::TIMER_BASE, stale ? col::DIM : col::MUTED, col::BG, C_BASELINE);  // quiet
 }
 
 void drawSprite(TFT_eSPI &g, const SpriteFrame &f, int x, int y, int px, uint16_t body) {

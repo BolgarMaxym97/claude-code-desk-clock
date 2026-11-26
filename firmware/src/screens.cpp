@@ -1,6 +1,7 @@
 #include "screens.h"
 #include <ESP8266WiFi.h>
 #include "device.h"
+#include "i18n.h"
 #include "config.h"
 #include "fonts.h"
 #include "panel.h"
@@ -76,11 +77,7 @@ static String hhmm(const LocalTime &lt) {
     snprintf(b, sizeof b, "%02d:%02d", lt.hour, lt.min);
     return b;
 }
-static String dateShort(const LocalTime &lt) {
-    static const char *D[] = {"НД", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"};
-    static const char *M[] = {"СІЧ", "ЛЮТ", "БЕР", "КВІТ", "ТРАВ", "ЧЕРВ", "ЛИП", "СЕРП", "ВЕР", "ЖОВТ", "ЛИСТ", "ГРУД"};
-    return String(D[lt.wday % 7]) + " " + lt.day + " " + M[(lt.month + 11) % 12];
-}
+static String dateShort(const LocalTime &lt) { return String(::dateShort(lt.wday, lt.day, lt.month).c_str()); }  // "THU 26 NOV" / "ЧТ 26.11"
 static String diag(const NetInfo &net) {
     if (net.connected) return "NTP…";
     return String("WIFI ") + net.wifiStatus + " #" + net.attempts;
@@ -95,45 +92,55 @@ static bool isWorkScreen(Screen s) {
 
 static void topBar(const Model &m, const View &v, const LocalTime &lt, const NetInfo &net) {
     bool dateLeft = v.screen == Screen::Clock || v.screen == Screen::LimitReached || v.screen == Screen::MacSilent;
-    String left = !lt.synced ? diag(net) : (dateLeft ? dateShort(lt) : hhmm(lt));
-    String right;
-    uint16_t rc = col::MUTED;
-    size_t total = m.count(), busy = m.busyCount();
+    // big time on the clock screens -> date only; work screens have no big time -> time and date
+    String left = !lt.synced ? diag(net) : (dateLeft ? dateShort(lt) : hhmm(lt) + "  " + dateShort(lt));
+    uint16_t rc = col::INK;
+    int total = int(m.count()), busy = int(m.busyCount());
     if (isWorkScreen(v.screen) || v.screen == Screen::Multi) {
-        right = String((unsigned)busy) + "/" + String((unsigned)total);
         if (v.screen == Screen::Permission || v.screen == Screen::YourTurn) rc = col::AMBER;
         else if (v.screen == Screen::Error) rc = col::RED;
         else if (v.screen == Screen::Done) rc = col::GREEN;
         else rc = col::CLAY;
-    } else if (v.screen == Screen::Clock && total > 0) {
-        right = String((unsigned)total);
+    } else if (v.screen != Screen::Clock) {
+        total = busy = 0;  // limit / offline screens: no session dots
     }
-    String key = left + "|" + right + "|" + String(rc);
+    String key = left + "|" + busy + "/" + total + "|" + String(rc);
     if (key == lastTopL) return;
     lastTopL = key;
-    drawTopBar(left, right, rc);
+    drawTopBar(left, busy, total, rc);
 }
+
+static int shownA = -1, shownB = -1;  // bar heights on screen while they ease to the new %
+static uint32_t lastAnim = 0;
 
 static void gauges(const Model &m, uint32_t now, time_t epoch) {
     bool stale = m.limitsStale(now);
     int a = m.hasLimits() ? m.limit5h().pct : 0, b = m.hasLimits() ? m.limit7d().pct : 0;
-    // reset timer + pace mark from 70 % (only with fresh limits and a known clock)
-    bool clock = epoch > 1600000000;
-    ResetLines ra, rb;
+    // time to reset and the pace mark under/on both bars (with fresh limits and a known clock)
+    bool clock = epoch > 1600000000 && !stale;
+    std::string ta, tb;
     int pa = -1, pb = -1;
-    if (!stale && clock && showResetTimer(a) && m.limit5h().resetsAt) {
-        ra = resetLines(long(m.limit5h().resetsAt) - long(epoch), false);
+    if (clock && m.limit5h().resetsAt) {
+        ta = resetShort(long(m.limit5h().resetsAt) - long(epoch), false);
         pa = pacePercent(m.limit5h().resetsAt, uint32_t(epoch), 5 * 3600);
     }
-    if (!stale && clock && showResetTimer(b) && m.limit7d().resetsAt) {
-        rb = resetLines(long(m.limit7d().resetsAt) - long(epoch), true);
+    if (clock && m.limit7d().resetsAt) {
+        tb = resetShort(long(m.limit7d().resetsAt) - long(epoch), true);
         pb = pacePercent(m.limit7d().resetsAt, uint32_t(epoch), 7 * 86400);
     }
-    String key = String(a) + "|" + b + "|" + stale + "|" + ra.a.c_str() + ra.b.c_str() + pa + "|" + rb.a.c_str() + rb.b.c_str() + pb;
-    if (key == lastGauge) return;
-    lastGauge = key;
-    drawGauge(13, "5h", a, a >= 90, stale, ra.a.c_str(), ra.b.c_str(), pa);
-    drawGauge(227, "7d", b, b >= 90, stale, rb.a.c_str(), rb.b.c_str(), pb);
+    String key = String(a) + "|" + b + "|" + stale + "|" + ta.c_str() + pa + "|" + tb.c_str() + pb;
+    if (key != lastGauge) {
+        lastGauge = key;
+        if (shownA < 0) shownA = a;
+        if (shownB < 0) shownB = b;
+        drawGauge(13, "5h", a, shownA, a >= 90, stale, ta.c_str(), pa);
+        drawGauge(227, "7d", b, shownB, b >= 90, stale, tb.c_str(), pb);
+    }
+    if ((shownA != a || shownB != b) && now - lastAnim >= 40) {  // ease the bars, ~0.5 s
+        lastAnim = now;
+        if (shownA != a) { shownA = gaugeStep(shownA, a); drawGaugeBar(13, shownA, a >= 90, stale, pa, false); }
+        if (shownB != b) { shownB = gaugeStep(shownB, b); drawGaugeBar(227, shownB, b >= 90, stale, pb, false); }
+    }
 }
 
 // Shorten s (UTF-8 safe, with "…") until it fits maxW pixels in font. Character counts are not
@@ -160,7 +167,7 @@ static void line(int slot, int y, int h, const uint8_t *font, const String &s, u
 static void workLines(const String &verb, uint16_t vc, const String &target, const String &detail) {
     line(0, lay::VERB_Y, 32, F_H, verb, vc);
     line(1, lay::TARGET_Y, 22, F_MONO, target, col::INK);
-    line(2, lay::DETAIL_Y, 20, F_S3, detail, col::DIM);
+    line(2, lay::DETAIL_Y, 20, F_S3, detail, col::INK);
 }
 
 static const ClaudeSession *newest(const Model &m) {
@@ -174,35 +181,35 @@ static void drawWorkBody(const Model &m, const View &v, uint32_t now) {
     const ClaudeSession *f = v.focus;
     switch (v.screen) {
         case Screen::Working: {
-            String verb = f->state == SState::Thinking ? "Думає"
-                        : f->state == SState::Compacting ? "Стискає"
-                        : f->agents > 0 ? (String(f->agents) + (f->agents == 1 ? " агент" : " агенти"))
+            String verb = f->state == SState::Thinking ? String(tr(T_V_THINK))
+                        : f->state == SState::Compacting ? String(tr(T_V_COMPACT))
+                        : f->agents > 0 ? (String(f->agents) + tr(f->agents == 1 ? T_AGENT1 : T_AGENTS))
                         : String(verbFor(f->tool));
-            String target = f->state == SState::Thinking ? (f->target.empty() ? String("") : "«" + S(utf8Truncate(f->target, 20)) + "»")
-                          : f->state == SState::Compacting ? String("контекст")
+            String target = f->state == SState::Thinking ? (f->target.empty() ? String("") : String(tr(T_Q_OPEN)) + S(utf8Truncate(f->target, 20)) + tr(T_Q_CLOSE))
+                          : f->state == SState::Compacting ? String(tr(T_CONTEXT))
                           : S(utf8Truncate(f->target, 22));
             workLines(verb, col::CLAY, target, S(utf8Truncate(f->project, 14)) + " · " + mmss(now - f->sinceMs));
             break;
         }
         case Screen::Permission:
-            workLines("Дозвіл?", col::AMBER, S(utf8Truncate(f->target, 22)),
-                      S(f->tool.empty() ? f->project : f->tool) + " · чекає " + mmss(now - f->sinceMs));
+            workLines(tr(T_V_ALLOW), col::AMBER, S(utf8Truncate(f->target, 22)),
+                      S(f->tool.empty() ? f->project : f->tool) + " · " + tr(T_WAITING) + mmss(now - f->sinceMs));
             break;
         case Screen::YourTurn:
-            workLines("Твоя черга", col::AMBER, S(utf8Truncate(f->project, 22)), "чекає " + mmss(now - f->sinceMs));
+            workLines(tr(T_V_YOURTURN), col::AMBER, S(utf8Truncate(f->project, 22)), String(tr(T_WAITING)) + mmss(now - f->sinceMs));
             break;
         case Screen::Error:
-            workLines("Помилка", col::PINK, S(utf8Truncate(f->target, 22)), S(utf8Truncate(f->project, 22)));
+            workLines(tr(T_V_ERROR), col::PINK, S(utf8Truncate(f->target, 22)), S(utf8Truncate(f->project, 22)));
             break;
         case Screen::Done: {
             const ClaudeSession *n = newest(m);
-            workLines("Готово", col::GREEN, n ? S(utf8Truncate(n->project, 22)) : String(""),
-                      "за " + mmss(m.lastDoneDurationMs()));
+            workLines(tr(T_DONE), col::GREEN, n ? S(utf8Truncate(n->project, 22)) : String(""),
+                      String(tr(T_IN)) + mmss(m.lastDoneDurationMs()));
             break;
         }
         case Screen::Hello: {
             const ClaudeSession *n = newest(m);
-            workLines("Привіт!", col::INK, n ? S(utf8Truncate(n->project, 22)) : String(""),
+            workLines(tr(T_V_HELLO), col::INK, n ? S(utf8Truncate(n->project, 22)) : String(""),
                       n ? S(utf8Truncate(n->branch, 22)) : String(""));
             break;
         }
@@ -260,14 +267,14 @@ static void drawLimitReached(const Model &m, time_t epoch, const LocalTime &lt) 
     if (left < 0) left = 0;
     char b[12];
     snprintf(b, sizeof b, "%ld:%02ld", left / 3600, left / 60 % 60);
-    line(0, 80, 32, F_H, "Ліміт", col::PINK);
+    line(0, 80, 32, F_H, tr(T_LIMIT), col::PINK);
     line(1, 112, 56, F_BIG, b, col::INK);
     time_t r = l.resetsAt;
     struct tm tmv;
     localtime_r(&r, &tmv);
-    char rb[24];
-    snprintf(rb, sizeof rb, "скидання о %02d:%02d", tmv.tm_hour, tmv.tm_min);
-    line(2, lay::DETAIL_Y, 20, F_S3, l.resetsAt ? String(rb) : String(""), col::DIM);
+    char rb[48];
+    snprintf(rb, sizeof rb, "%s%02d:%02d", tr(T_RESETS_AT), tmv.tm_hour, tmv.tm_min);
+    line(2, lay::DETAIL_Y, 20, F_S3, l.resetsAt ? String(rb) : String(""), col::INK);
     (void)lt;
 }
 
@@ -281,7 +288,7 @@ static void drawSilentCard(const Model &m, uint32_t now) {
     lineCache[1] = key;
     int x = lay::CL + 2, w = lay::CR - lay::CL - 4;
     tft.fillSmoothRoundRect(x, lay::CARD_Y, w, lay::CARD_H, 7, col::CARD, col::BG);
-    text(F_S, offlineNow ? "Немає Wi-Fi" : "Claude мовчить", x + 10, lay::CARD_Y + 17, offlineNow ? col::AMBER : col::INK,
+    text(F_S, offlineNow ? tr(T_NO_WIFI) : tr(T_SILENT), x + 10, lay::CARD_Y + 17, offlineNow ? col::AMBER : col::INK,
          col::CARD, ML_DATUM);
     text(F_LIM, mins, x + w - 8, lay::CARD_Y + 17, col::MUTED, col::CARD, MR_DATUM);
 }
@@ -305,13 +312,13 @@ static void drawBoot(const NetInfo &net, bool frame, uint32_t tick) {
         lineCache[0] = "boot";
         text(F_TOP, "CLAUDE CLOCK", lay::CX, lay::TOP_BASE, col::MUTED, col::BG, C_BASELINE);
         text(F_S, "Wi-Fi", X0 + 14, Y_WIFI, col::INK, col::BG, ML_DATUM);
-        text(F_S, "Час", X0 + 14, Y_TIME, col::INK, col::BG, ML_DATUM);
+        text(F_S, tr(T_BOOT_TIME), X0 + 14, Y_TIME, col::INK, col::BG, ML_DATUM);
         text(F_S3, fitText(F_S3, net.ssid, 90), X1, Y_WIFI, col::MUTED, col::BG, MR_DATUM);
         text(F_S3, "NTP", X1, Y_TIME, col::MUTED, col::BG, MR_DATUM);
         text(F_S3, "v" FW_VERSION, lay::CX, lay::BOTTOM_BASE, col::DIM, col::BG, C_BASELINE);
     }
-    String detail = net.connected ? String("Синхронізую час…")
-                  : String("Підключаюсь · спроба ") + net.attempts;
+    String detail = net.connected ? String(tr(T_SYNCING))
+                  : String(tr(T_CONNECTING)) + net.attempts;
     if (lineCache[2] != detail) {
         lineCache[2] = detail;
         tft.fillRect(0, 186, 240, 24, col::BG);
@@ -347,34 +354,35 @@ static void drawSetup(const NetInfo &net, uint32_t now, bool frame, uint32_t tic
     if (lineCache[0] != key) {
         lineCache[0] = key;
         tft.fillScreen(col::BG);
-        text(F_TOP, "НАЛАШТУВАННЯ WI-FI", lay::CX, lay::TOP_BASE, col::MUTED, col::BG, C_BASELINE);
+        text(F_TOP, tr(T_SETUP_TITLE), lay::CX, lay::TOP_BASE, col::MUTED, col::BG, C_BASELINE);
         String ap = String(net.apSsid) + " · " + net.apPass;
         switch (page) {
             case 0:
                 drawQr(wifiQr(net.apSsid, net.apPass).c_str(), lay::QR_TOP);
                 text(F_S, ap, lay::CX, lay::QR_AP_Y, col::INK, col::BG, MC_DATUM);
-                text(F_S3, "Скануй камерою телефона", lay::CX, lay::BOTTOM_BASE, col::MUTED, col::BG, C_BASELINE);
+                text(F_S3, tr(T_SCAN_HINT), lay::CX, lay::BOTTOM_BASE, col::MUTED, col::BG, C_BASELINE);
                 break;
             case 1:
-                text(F_S3, fitText(F_S3, net.connected ? String("Зміна мережі Wi-Fi")
-                                       : net.ssid[0] ? String("Немає зв’язку з «") + net.ssid + "»" : String("Перше налаштування"), 200),
+                text(F_S3, fitText(F_S3, net.connected ? String(tr(T_CHANGE_WIFI))
+                                       : net.ssid[0] ? String(tr(T_NO_LINK)) + tr(T_Q_OPEN) + net.ssid + tr(T_Q_CLOSE) : String(tr(T_FIRST_SETUP)), 200),
                      lay::CX, 46, col::AMBER, col::BG, MC_DATUM);
-                text(F_S, "1  Скануй QR камерою", 24, 84, col::INK, col::BG, ML_DATUM);
-                text(F_S, "2  Підключись до точки", 24, 114, col::INK, col::BG, ML_DATUM);
-                text(F_S, "3  Обери свою мережу", 24, 144, col::INK, col::BG, ML_DATUM);
-                text(F_S, "    і введи пароль", 24, 166, col::INK, col::BG, ML_DATUM);
+                text(F_S, tr(T_STEP1), 24, 84, col::INK, col::BG, ML_DATUM);
+                text(F_S, tr(T_STEP2), 24, 114, col::INK, col::BG, ML_DATUM);
+                text(F_S, tr(T_STEP3), 24, 144, col::INK, col::BG, ML_DATUM);
+                text(F_S, tr(T_STEP3B), 24, 166, col::INK, col::BG, ML_DATUM);
                 text(F_S3, ap, lay::CX, 202, col::MUTED, col::BG, MC_DATUM);
-                text(F_S3, "або відкрий 192.168.4.1", lay::CX, lay::BOTTOM_BASE, col::MUTED, col::BG, C_BASELINE);
+                text(F_S3, tr(T_OR_OPEN), lay::CX, lay::BOTTOM_BASE, col::MUTED, col::BG, C_BASELINE);
                 break;
             case 2:
-                text(F_S, "Перевіряю мережу", lay::CX, 140, col::INK, col::BG, MC_DATUM);
-                text(F_S, fitText(F_S, String("«") + net.testSsid + "»", 200), lay::CX, 164, col::MUTED, col::BG, MC_DATUM);
+                text(F_S, tr(T_CHECKING), lay::CX, 140, col::INK, col::BG, MC_DATUM);
+                text(F_S, fitText(F_S, String(tr(T_Q_OPEN)) + net.testSsid + tr(T_Q_CLOSE), 200), lay::CX, 164, col::MUTED, col::BG, MC_DATUM);
                 break;
             case 3: {
-                const char *why = net.testReason == 1 ? "Невірний пароль" : net.testReason == 2 ? "Мережу не знайдено" : "Не вдалось підключитись";
-                text(F_H, why, lay::CX, 120, col::PINK, col::BG, MC_DATUM);
-                text(F_S, fitText(F_S, String("«") + net.testSsid + "»", 200), lay::CX, 152, col::MUTED, col::BG, MC_DATUM);
-                text(F_S3, "Спробуй ще раз на телефоні", lay::CX, 196, col::INK, col::BG, MC_DATUM);
+                static const Txt WHY[] = {T_WHY_FAIL, T_WHY_PASS, T_WHY_NOSSID, T_WHY_FAIL, T_WHY_NOIP};
+                text(F_H, tr(WHY[net.testReason < 5 ? net.testReason : 0]), lay::CX, 120, col::PINK, col::BG, MC_DATUM);
+                if (net.testReason == 4) text(F_S3, tr(T_DHCP_HINT), lay::CX, 176, col::INK, col::BG, MC_DATUM);
+                text(F_S, fitText(F_S, String(tr(T_Q_OPEN)) + net.testSsid + tr(T_Q_CLOSE), 200), lay::CX, 152, col::MUTED, col::BG, MC_DATUM);
+                text(F_S3, tr(T_TRY_AGAIN), lay::CX, 196, col::INK, col::BG, MC_DATUM);
                 text(F_S3, ap, lay::CX, lay::BOTTOM_BASE, col::MUTED, col::BG, C_BASELINE);
                 break;
             }
@@ -382,9 +390,9 @@ static void drawSetup(const NetInfo &net, uint32_t now, bool frame, uint32_t tic
                 tft.fillSmoothCircle(lay::CX, 90, 26, col::GREEN, col::BG);
                 tft.drawWideLine(lay::CX - 12, 90, lay::CX - 3, 100, 5, col::BG, col::GREEN);
                 tft.drawWideLine(lay::CX - 3, 100, lay::CX + 13, 80, 5, col::BG, col::GREEN);
-                text(F_H, "Підключено", lay::CX, 146, col::INK, col::BG, MC_DATUM);
-                text(F_S, fitText(F_S, String("«") + net.testSsid + "»", 200), lay::CX, 176, col::MUTED, col::BG, MC_DATUM);
-                if (net.test == TEST_OK_UNSAVED) text(F_S3, "Не збережено: після перезапуску знову", lay::CX, 206, col::AMBER, col::BG, MC_DATUM);
+                text(F_H, tr(T_CONNECTED), lay::CX, 146, col::INK, col::BG, MC_DATUM);
+                text(F_S, fitText(F_S, String(tr(T_Q_OPEN)) + net.testSsid + tr(T_Q_CLOSE), 200), lay::CX, 176, col::MUTED, col::BG, MC_DATUM);
+                if (net.test == TEST_OK_UNSAVED) text(F_S3, tr(T_NOT_SAVED), lay::CX, 206, col::AMBER, col::BG, MC_DATUM);
                 break;
         }
     }
@@ -397,11 +405,11 @@ static void drawPair(uint32_t now) {
     if (lineCache[0] == code) return;
     lineCache[0] = code;
     tft.fillScreen(col::BG);
-    text(F_TOP, "ПІДКЛЮЧЕННЯ КОМП’ЮТЕРА", lay::CX, lay::TOP_BASE, col::MUTED, col::BG, C_BASELINE);
-    text(F_S, "Введи код на комп’ютері:", lay::CX, 70, col::INK, col::BG, MC_DATUM);
+    text(F_TOP, tr(T_PAIR_TITLE), lay::CX, lay::TOP_BASE, col::MUTED, col::BG, C_BASELINE);
+    text(F_S, tr(T_PAIR_ENTER), lay::CX, 70, col::INK, col::BG, MC_DATUM);
     tft.fillRoundRect(lay::CX - 90, 92, 180, 48, 8, col::CARD);
     text(F_H, code, lay::CX, 116, col::AMBER, col::CARD, MC_DATUM);
-    text(F_S3, "Код діє 5 хвилин", lay::CX, 162, col::MUTED, col::BG, MC_DATUM);
+    text(F_S3, tr(T_PAIR_VALID), lay::CX, 162, col::MUTED, col::BG, MC_DATUM);
     text(F_S3, String("claude-clock.local · ") + WiFi.localIP().toString(), lay::CX, lay::BOTTOM_BASE, col::DIM, col::BG,
          C_BASELINE);
     (void)now;
@@ -625,6 +633,7 @@ static void drawCaption(const char *caption, const char *date) {
     if (!caption) return;
     tft.fillSmoothRoundRect(x, lay::CARD_Y, w, lay::CARD_H, 7, col::CARD, col::BG);
     int dw = date && *date ? textWidth(F_LIM, date) + 8 : 0;
+    if (dw && textWidth(F_S, caption) > w - 20 - dw) dw = 0;  // long caption: drop the date rather than cut the name
     text(F_S, fitText(F_S, caption, w - 20 - dw), x + 10, lay::CARD_Y + 17, col::AMBER, col::CARD, ML_DATUM);
     if (dw) text(F_LIM, date, x + w - 8, lay::CARD_Y + 17, col::MUTED, col::CARD, MR_DATUM);
 }
@@ -814,7 +823,7 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
                 if (idle.act() == IdleAct::Scene) {
                     const Scene &sc = sceneAt(idle.sceneIndex());
                     drawSceneStage(sc, idle.sceneTick(it), it, hat);
-                    if (sc.kind == SceneKind::Holiday) { caption = sc.caption; date = sc.date; }
+                    if (sc.kind == SceneKind::Holiday) { caption = sceneCaption(sc.name, sc.caption); date = sc.date; }
                 } else {
                     drawStage(pose, P_BODY, hat, hat, it, idle.act() == IdleAct::Rest, lt.synced ? lt.month : 0);
                 }

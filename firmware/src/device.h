@@ -10,6 +10,8 @@ const char *deviceTz();                 // POSIX TZ (default: Kyiv)
 void deviceBirthday(int &month, int &day);
 bool deviceSetTz(const String &tz);     // false: invalid
 bool deviceSetBirthday(const String &mmdd);  // "MM-DD" or "" (off); false: invalid
+bool deviceSetLang(const String &code);      // "en" / "uk"; false: unknown
+const char *deviceLang();
 bool deviceSettingsSaved();             // false: kept in RAM only (flash area unusable)
 
 // Pairing: start shows a fresh code on the screen for a few minutes.

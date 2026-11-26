@@ -70,10 +70,29 @@ func GetStatus(url string, timeout time.Duration) (Status, error) {
 	if resp.StatusCode != 200 {
 		return s, &HTTPError{resp.StatusCode}
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 16384)).Decode(&s); err != nil || s.FW == "" {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16384)).Decode(&s); err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return s, errors.New("the clock answered too slowly (weak Wi-Fi?)")
+		}
+		return s, errors.New("not a Claude Clock")
+	}
+	if s.FW == "" {
 		return s, errors.New("not a Claude Clock")
 	}
 	return s, nil
+}
+
+// StatusRetry asks a few times: an ESP8266 on weak Wi-Fi sometimes misses one request.
+func StatusRetry(url string, timeout time.Duration, tries int) (Status, error) {
+	var st Status
+	var err error
+	for i := 0; i < tries; i++ {
+		if st, err = GetStatus(url, timeout); err == nil {
+			return st, nil
+		}
+	}
+	return st, err
 }
 
 // PairStart asks the clock to show a pairing code on its screen.

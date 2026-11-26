@@ -83,3 +83,21 @@ func TestNotAClock(t *testing.T) {
 		t.Fatal("router taken for a clock")
 	}
 }
+
+func TestSlowClockIsReportedAsSlowNotAsForeign(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"fw":"1.0.0",`))
+		w.(http.Flusher).Flush()
+		time.Sleep(1500 * time.Millisecond) // body stalls mid-way, like a busy ESP8266
+		w.Write([]byte(`"ip":"x"}`))
+	}))
+	defer s.Close()
+	_, err := GetStatus(s.URL, 500*time.Millisecond)
+	if err == nil || strings.Contains(err.Error(), "not a Claude Clock") {
+		t.Fatalf("want a timeout error, got %v", err)
+	}
+	st, err := StatusRetry(s.URL, 2*time.Second, 2)
+	if err != nil || st.FW != "1.0.0" {
+		t.Fatal(st, err)
+	}
+}

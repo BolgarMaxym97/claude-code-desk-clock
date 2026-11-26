@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "model.h"
+#include "i18n.h"
 #include <cstring>
 
 Ev parseEvent(const char *hookName, const char *kind) {
@@ -212,14 +213,29 @@ Screen offlineScreen(Screen s) {
     return Screen::MacSilent;
 }
 
-ResetLines resetLines(long s, bool sevenDay) {
+std::string resetShort(long s, bool sevenDay) {
     if (s < 0) s = 0;
-    long d = s / 86400, h = s / 3600 % 24, hours = s / 3600, m = s / 60 % 60;
-    char a[12], b[12];
-    if (sevenDay && d > 0) { snprintf(a, sizeof a, "%ldд", d); snprintf(b, sizeof b, "%ldг", h); }
-    else if (hours > 0) { snprintf(a, sizeof a, "%ldг", hours); snprintf(b, sizeof b, "%02ldх", m); }
-    else { snprintf(a, sizeof a, "%ldх", m); b[0] = 0; }
-    return ResetLines{a, b};
+    long d = s / 86400, hours = s / 3600, m = s / 60 % 60;
+    char o[12];
+    if (sevenDay && d > 0) snprintf(o, sizeof o, "%ld%s", d, tr(T_U_DAY));
+    else if (sevenDay && hours > 0) snprintf(o, sizeof o, "%ld%s", hours, tr(T_U_HOUR));
+    else if (hours > 0) snprintf(o, sizeof o, "%ld:%02ld", hours, m);
+    else snprintf(o, sizeof o, "%ld%s", m, tr(T_U_MIN));
+    return o;
+}
+
+int gaugeStep(int shown, int target) {
+    int d = target - shown;
+    if (d == 0) return target;
+    int step = (d > 0 ? d + 2 : d - 2) / 3;  // a third of the way, rounded away from zero -> at least 1
+    return shown + step;
+}
+
+SessionDots sessionDots(int busy, int total) {
+    const int MAX = 6;
+    int shown = total < MAX ? total : MAX;
+    int filled = busy < shown ? busy : shown;
+    return SessionDots{shown, filled, total - shown};
 }
 
 int pacePercent(uint32_t resetsAt, uint32_t now, uint32_t window) {

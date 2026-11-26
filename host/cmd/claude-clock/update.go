@@ -31,7 +31,7 @@ func update(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := clock.GetStatus(c.URL, 3*time.Second)
+	st, err := clock.StatusRetry(c.URL, 5*time.Second, 3)
 	if err != nil {
 		return fmt.Errorf("clock not reachable at %s: %v", c.URL, err)
 	}

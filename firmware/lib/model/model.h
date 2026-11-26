@@ -57,8 +57,13 @@ enum class Screen {
 Screen offlineScreen(Screen s);
 
 // Time to the limit reset, shown under a gauge from 70 %: two short grey lines ("2г"/"14х", "3д"/"4г", "45х"/"").
-struct ResetLines { std::string a, b; };
-ResetLines resetLines(long secondsLeft, bool sevenDay);
+// Time to the limit reset in one short line: 5h window "h:mm" ("45хв" under an hour), 7d window "3д" / "5г" / "30хв".
+std::string resetShort(long secondsLeft, bool sevenDay);
+// One animation step of a gauge bar toward its new % (called every ~40 ms): eases out, never overshoots.
+int gaugeStep(int shown, int target);
+// Top row: one dot per session, filled = busy; at most 6 dots, the rest as "+N".
+struct SessionDots { int shown, filled, more; };
+SessionDots sessionDots(int busy, int total);
 inline bool showResetTimer(int pct) { return pct >= 70; }
 // How much of the limit window has passed, 0..100 (-1: reset time unknown) -> white pace mark on the gauge.
 int pacePercent(uint32_t resetsAt, uint32_t nowEpoch, uint32_t windowSec);

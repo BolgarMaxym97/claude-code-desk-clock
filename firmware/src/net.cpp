@@ -20,6 +20,7 @@ static String savedSsid, savedPass, apPass, testSsid, testPass;
 static bool hasSaved = false, apOn = false, wasConnected = false, mdnsUp = false, staActive = false;
 static uint32_t lastBegin = 0, attempts = 0, cand = 0, testStart = 0, okAt = 0;
 static uint8_t testState = TEST_IDLE, testReason = 0;
+static bool testAssoc = false;  // joined the network (RSSI known) during the test, even without an IP
 static bool usingSaved = false;
 static uint32_t forcedUntil = 0;  // setup opened on request while still online
 static bool simulateBad = false;
@@ -108,6 +109,9 @@ void netBegin() {
     WiFi.mode(WIFI_OFF);               // clean radio state after OTA / soft reset
     delay(200);
     WiFi.mode(WIFI_STA);               // STA only: a permanent softAP breaks reconnects
+    // 802.11g: several routers (many ASUS models) ignore the ESP8266's DHCP requests in 802.11n mode, most often
+    // right after a soft reset (OTA) - esp8266/Arduino#8299. 54 Mbit/s is plenty for the clock.
+    WiFi.setPhyMode(WIFI_PHY_MODE_11G);
     WiFi.setSleepMode(WIFI_NONE_SLEEP);
     WiFi.setAutoReconnect(true);
     WiFi.hostname("claude-clock");
@@ -121,6 +125,7 @@ void netTryCreds(const String &ssid, const String &pass) {
     testPass = pass;
     testState = TEST_RUNNING;
     testReason = 0;
+    testAssoc = false;
     testStart = millis();
     int ch = channelOf(ssid);
     if (ch >= 1 && ch <= 13 && ch != apChannel) {  // move the AP to the network's channel (phone rejoins)
@@ -155,9 +160,10 @@ static void tickTest(uint32_t now) {
         testPass = "";
         return;
     }
+    if (WiFi.RSSI() < 0) testAssoc = true;  // the SDK reports 31 while not associated
     bool early = now - testStart > 6000 && (st == WL_WRONG_PASSWORD || st == WL_NO_SSID_AVAIL);
     if (early || now - testStart > TEST_MS) {
-        testReason = st == WL_WRONG_PASSWORD ? 1 : st == WL_NO_SSID_AVAIL ? 2 : 3;
+        testReason = st == WL_WRONG_PASSWORD ? 1 : st == WL_NO_SSID_AVAIL ? 2 : testAssoc ? 4 : 3;
         testState = TEST_FAIL;
         testPass = "";
         stopSta();

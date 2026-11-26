@@ -9,4 +9,6 @@
 #define pgm_read_byte(p) (*(const uint8_t *)(p))
 #define memcpy_P memcpy
 #define strlen_P strlen
+#define strncpy_P strncpy
+#define pgm_read_ptr(p) (*(const void *const *)(p))
 #endif

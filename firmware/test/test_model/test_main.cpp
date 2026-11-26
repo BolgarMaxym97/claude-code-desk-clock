@@ -1,4 +1,5 @@
 #include <unity.h>
+#include "i18n.h"
 #include <cstring>
 #include "model.h"
 #include "text.h"
@@ -9,7 +10,7 @@ static EventIn ev(const char *s, Ev e, const char *tool = "", const char *target
 }
 
 void setUp() {}
-void tearDown() {}
+void tearDown() { setLang(Lang::En); }
 
 // ---- Task 1: event mapping ----
 void test_session_start_creates_idle() {
@@ -330,6 +331,7 @@ void test_limits_clamped_and_stale() {
 
 // ---- Task 4 (MVP part): verbs, hat, sprites ----
 void test_verb_for_tool() {
+    setLang(Lang::Uk);  // Ukrainian texts (English is covered in test_i18n)
     TEST_ASSERT_EQUAL_STRING("Виконує", verbFor("Bash"));
     TEST_ASSERT_EQUAL_STRING("Редагує", verbFor("Edit"));
     TEST_ASSERT_EQUAL_STRING("Редагує", verbFor("Write"));
@@ -388,24 +390,42 @@ void test_offline_hides_stale_claude_state() {
     TEST_ASSERT_EQUAL(int(Screen::Boot), int(offlineScreen(Screen::Boot)));
 }
 
-void test_reset_timer_lines() {
-    ResetLines r = resetLines(2 * 3600 + 14 * 60 + 30, false);  // 5h window: 2 h 14 min
-    TEST_ASSERT_EQUAL_STRING("2г", r.a.c_str());
-    TEST_ASSERT_EQUAL_STRING("14х", r.b.c_str());
-    r = resetLines(65 * 60, false);
-    TEST_ASSERT_EQUAL_STRING("1г", r.a.c_str());
-    TEST_ASSERT_EQUAL_STRING("05х", r.b.c_str());
-    r = resetLines(45 * 60 + 10, false);  // under an hour: one line
-    TEST_ASSERT_EQUAL_STRING("45х", r.a.c_str());
-    TEST_ASSERT_EQUAL_STRING("", r.b.c_str());
-    r = resetLines(3 * 86400 + 4 * 3600 + 59, true);  // 7d window: 3 d 4 h
-    TEST_ASSERT_EQUAL_STRING("3д", r.a.c_str());
-    TEST_ASSERT_EQUAL_STRING("4г", r.b.c_str());
-    r = resetLines(5 * 3600 + 7 * 60, true);  // 7d, under a day: hours + minutes
-    TEST_ASSERT_EQUAL_STRING("5г", r.a.c_str());
-    TEST_ASSERT_EQUAL_STRING("07х", r.b.c_str());
-    r = resetLines(-5, false);
-    TEST_ASSERT_EQUAL_STRING("0х", r.a.c_str());
+void test_gauge_animation_steps_toward_target() {  // bar eases to the new % in ~0.5 s, never overshoots
+    TEST_ASSERT_EQUAL(46, gaugeStep(46, 46));
+    int v = 20, steps = 0;
+    while (v != 80 && steps < 50) { int n = gaugeStep(v, 80); TEST_ASSERT_TRUE(n > v && n <= 80); v = n; steps++; }
+    TEST_ASSERT_EQUAL(80, v);
+    TEST_ASSERT_TRUE(steps >= 6 && steps <= 14);  // 40 ms per step -> 0.25..0.55 s
+    v = 90;
+    while (v != 89) v = gaugeStep(v, 89);       // small changes still arrive
+    TEST_ASSERT_EQUAL(89, gaugeStep(95, 89) >= 89 ? 89 : -1);
+}
+
+void test_session_dots() {  // top row: one dot per session (filled = busy), at most 6, then "+N"
+    SessionDots d = sessionDots(2, 3);
+    TEST_ASSERT_EQUAL(3, d.shown);
+    TEST_ASSERT_EQUAL(2, d.filled);
+    TEST_ASSERT_EQUAL(0, d.more);
+    d = sessionDots(4, 9);
+    TEST_ASSERT_EQUAL(6, d.shown);
+    TEST_ASSERT_EQUAL(4, d.filled);
+    TEST_ASSERT_EQUAL(3, d.more);
+    d = sessionDots(8, 9);  // more busy than shown dots: all shown are filled
+    TEST_ASSERT_EQUAL(6, d.filled);
+    d = sessionDots(0, 0);
+    TEST_ASSERT_EQUAL(0, d.shown);
+}
+
+void test_reset_timer_one_line() {  // fits the 26 px gauge column under the percent
+    setLang(Lang::Uk);  // Ukrainian texts (English is covered in test_i18n)
+    TEST_ASSERT_EQUAL_STRING("2:14", resetShort(2 * 3600 + 14 * 60 + 30, false).c_str());  // 5h window: h:mm
+    TEST_ASSERT_EQUAL_STRING("1:05", resetShort(65 * 60, false).c_str());
+    TEST_ASSERT_EQUAL_STRING("4:59", resetShort(5 * 3600 - 1, false).c_str());
+    TEST_ASSERT_EQUAL_STRING("45хв", resetShort(45 * 60 + 10, false).c_str());            // under an hour: minutes
+    TEST_ASSERT_EQUAL_STRING("3д", resetShort(3 * 86400 + 4 * 3600 + 59, true).c_str()); // 7d: days
+    TEST_ASSERT_EQUAL_STRING("5г", resetShort(5 * 3600 + 7 * 60, true).c_str());         // 7d under a day: hours
+    TEST_ASSERT_EQUAL_STRING("30хв", resetShort(30 * 60, true).c_str());
+    TEST_ASSERT_EQUAL_STRING("0хв", resetShort(-5, false).c_str());
 }
 
 void test_reset_timer_only_from_70_and_pace() {
@@ -451,7 +471,9 @@ int main() {
     RUN_TEST(test_unsynced_time_is_not_night);
     RUN_TEST(test_unsynced_boot_replaces_idle_screens_only);
     RUN_TEST(test_offline_hides_stale_claude_state);
-    RUN_TEST(test_reset_timer_lines);
+    RUN_TEST(test_reset_timer_one_line);
+    RUN_TEST(test_gauge_animation_steps_toward_target);
+    RUN_TEST(test_session_dots);
     RUN_TEST(test_reset_timer_only_from_70_and_pace);
     RUN_TEST(test_limit_reached_only_replaces_clock);
     RUN_TEST(test_expired_sessions_do_not_show_mac_silent);

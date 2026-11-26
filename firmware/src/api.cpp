@@ -94,6 +94,8 @@ static void handleStatus() {
     doc["ip"] = WiFi.localIP().toString();
     doc["rssi"] = WiFi.RSSI();
     doc["heap"] = ESP.getFreeHeap();
+    doc["maxblock"] = ESP.getMaxFreeBlockSize();
+    doc["reset"] = ESP.getResetReason();  // why the clock last restarted (stability check)
     doc["uptime"] = millis() / 1000;
     doc["sessions"] = mdl->count();
     doc["busy"] = mdl->busyCount();
@@ -121,6 +123,7 @@ static void handleStatus() {
     doc["safe"] = safeBoot;
     doc["settings"] = deviceSettingsSaved();
     doc["tz"] = deviceTz();
+    doc["lang"] = deviceLang();
     if (srv->hasArg("fs")) doc["fsdiag"] = fsDiag();
     String out;
     serializeJson(doc, out);
@@ -148,13 +151,17 @@ static void handlePair() {
     srv->send(200, "application/json", body);
 }
 
-static void handleSettings() {  // {"tz": "<POSIX TZ>", "birthday": "MM-DD" | ""}
+static void handleSettings() {  // {"tz": "<POSIX TZ>", "birthday": "MM-DD" | "", "lang": "en" | "uk"}
     if (!authorized()) return;
     JsonDocument doc;
     if (!parseBody(doc)) return;
     if (doc["tz"].is<const char *>()) {
         if (!deviceSetTz(doc["tz"].as<const char *>())) { srv->send(400, "application/json", "{\"error\":\"tz\"}"); return; }
         netApplyTz();
+    }
+    if (doc["lang"].is<const char *>() && !deviceSetLang(doc["lang"].as<const char *>())) {
+        srv->send(400, "application/json", "{\"error\":\"lang\"}");
+        return;
     }
     if (doc["birthday"].is<const char *>() && !deviceSetBirthday(doc["birthday"].as<const char *>())) {
         srv->send(400, "application/json", "{\"error\":\"birthday\"}");

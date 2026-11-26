@@ -2,6 +2,7 @@
 #include "config.h"
 #include "settings.h"
 #include "store.h"
+#include "i18n.h"
 
 static const char *TZ_DEFAULT = "EET-2EEST,M3.5.0/3,M10.5.0/4";  // Europe/Kyiv
 static const uint32_t PAIR_MS = 300000;
@@ -11,8 +12,15 @@ static PairWindow pair;
 
 static uint32_t hwRandom() { return ESP.random() ^ (micros() * 2654435761u); }  // hardware RNG (+ timing jitter)
 
+static void applyLang() {
+    Lang l = Lang::En;
+    parseLang(cur.lang, l);
+    setLang(l);
+}
+
 void deviceBegin() {
     storeLoadSettings(cur);
+    applyLang();
 #ifdef CLOCK_TOKEN
     cur.token = CLOCK_TOKEN;  // developer build with secrets.h: keep the token the computer already has
     saved = true;
@@ -49,6 +57,17 @@ bool deviceSetBirthday(const String &mmdd) {
 }
 
 bool deviceSettingsSaved() { return saved; }
+
+bool deviceSetLang(const String &code) {
+    Lang l;
+    if (!parseLang(code.c_str(), l)) return false;
+    cur.lang = code.c_str();
+    applyLang();
+    saved = storeSaveSettings(cur);
+    return true;
+}
+
+const char *deviceLang() { return langCode(lang()); }
 
 bool devicePairStart(uint32_t now) {
     if (pair.locked()) return false;
