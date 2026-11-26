@@ -1,4 +1,4 @@
-# Claude Clock — installer for Windows (PowerShell).
+# Claude Clock - installer for Windows (PowerShell).
 #   irm https://raw.githubusercontent.com/BolgarMaxym97/claude-code-desk-clock/main/install/install.ps1 | iex
 # Downloads claude-clock.exe from the latest GitHub release, checks its sha256, puts it in
 # %LOCALAPPDATA%\Programs\claude-clock (added to your user PATH) and runs `claude-clock setup`.
