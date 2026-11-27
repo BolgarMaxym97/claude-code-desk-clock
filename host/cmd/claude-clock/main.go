@@ -494,7 +494,8 @@ func status() error {
 	}
 	fmt.Printf("Calendar   %s\n", calendarStatus(c))
 	fmt.Printf("Health     %s\n", health(st))
-	fmt.Printf("Settings   %s/  (open in a browser on this network)\n", strings.TrimRight(c.URL, "/"))
+	fmt.Printf("Settings   http://%s/  or  %s/  (open in a browser on this network)\n", clock.MDNSName,
+		strings.TrimRight(c.URL, "/"))
 	if st.Safe {
 		fmt.Println("SAFE MODE  the clock restarted 3 times in a row after a crash: no weather / alerts, settings read-only.\n" +
 			"           Unplug it for a few seconds, or run `claude-clock update`.")

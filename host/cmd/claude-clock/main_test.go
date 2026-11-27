@@ -54,6 +54,8 @@ func env(t *testing.T, url string) []string {
 	d := t.TempDir()
 	c, _ := json.Marshal(map[string]string{"url": url, "token": "tok123"})
 	os.WriteFile(filepath.Join(d, "config.json"), c, 0o600)
+	// no alert levels job: its detached sender would write into d after the test, racing the TempDir cleanup
+	os.WriteFile(filepath.Join(d, "alerts.off"), nil, 0o600)
 	return append(os.Environ(), "CLOCK_CONFIG_DIR="+d, "CLAUDE_PROJECT_DIR=")
 }
 

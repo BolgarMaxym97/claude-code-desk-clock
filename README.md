@@ -12,7 +12,7 @@ It runs on a cheap ESP8266 "smart weather clock" from AliExpress. You don't need
   <img src="docs/media/cover.png" alt="Claude Code Desk Clock">
 </p>
 
-https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
+https://github.com/user-attachments/assets/215340ce-2eeb-45b8-a00e-d6261b67464f
 
 > Unofficial fan project. Not affiliated with, endorsed by or supported by Anthropic.
 > "Claude" and "Claude Code" are trademarks of Anthropic, PBC.
@@ -32,7 +32,8 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
   the line in red and wakes the clock (dimmed) at night. Each one can be switched off. The weather line says when
   rain or snow is coming ("rain at 18:00"), and on Mondays the line sums up **last week with Claude**.
 - **Your own messages**: `claude-clock say "Build done"` puts a green card on the clock, handy at the end of a script.
-- **Settings page** on the clock itself: open the address from `claude-clock status` in a browser on the same network.
+- **Settings page** on the clock itself: open `http://claude-clock.local/` (or the IP address from `claude-clock status`)
+  in a browser on the same network and enter the code shown on the clock.
   Language, clock face (classic, minimal, pixel, segment, flip, terminal, binary), brightness, sleep hours, weather,
   alerts, and the animations: star your favourites and play only them, switch off groups (holidays, events…), choose
   how lively the mascot is, play one now or keep one playing for minutes, hours or always, or reset it all.
@@ -128,6 +129,8 @@ If the clock cannot reach its network for about 2–3 minutes, it shows the QR c
 - **The clock stopped reacting after a router restart.** Its IP address probably changed. The program looks the clock
   up again by name. If that doesn't help, run `claude-clock setup`. Giving the clock a fixed IP address in your
   router settings avoids this.
+- **`claude-clock.local` doesn't open.** Safari on a Mac or iPhone finds it; Chrome may not while its "Secure DNS"
+  setting is on, and some Android phones don't support `.local` names. Use the IP address from `claude-clock status`.
 - **The time is wrong.** Run `claude-clock config --tz auto`.
 - **The clock is stuck on "Connecting".** Wait about 3 minutes. It will open the Wi-Fi setup by itself.
 - **A grey "?" after the date.** The alert source has not answered for over 5 minutes, so the clock can't tell
