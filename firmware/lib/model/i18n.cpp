@@ -15,10 +15,10 @@ const char *langCode(Lang l) { return l == Lang::Uk ? "uk" : "en"; }
 
 // X-macro: id, English, Ukrainian
 #define TEXTS(X) \
-    X(T_V_RUN, "Running", "Виконує") X(T_V_EDIT, "Editing", "Редагує") X(T_V_READ, "Reading", "Читає") \
+    X(T_V_RUN, "Running", "Виконує") X(T_V_CALL, "Calling", "Викликає") X(T_V_EDIT, "Editing", "Редагує") X(T_V_READ, "Reading", "Читає") \
     X(T_V_DELEGATE, "Delegating", "Делегує") X(T_V_SEARCH, "Searching", "Шукає") X(T_V_WORK, "Working", "Працює") \
     X(T_V_THINK, "Thinking", "Думає") X(T_V_COMPACT, "Compacting", "Стискає") \
-    X(T_AGENT1, " agent", " агент") X(T_AGENTS, " agents", " агенти") X(T_CONTEXT, "context", "контекст") \
+    X(T_AGENT1, " agent", " агент") X(T_AGENTS, " agents", " агенти") X(T_CONTEXT, "context", "контекст") X(T_COMPACT_SOON, "compact soon", "скоро стискання") X(T_FC_RAIN, "rain ", "дощ о ") X(T_FC_SNOW, "snow ", "сніг о ") X(T_FC_STORM, "storm ", "гроза о ") \
     X(T_V_ALLOW, "Allow?", "Дозвіл?") X(T_WAITING, "waiting ", "чекає ") X(T_V_YOURTURN, "Your turn", "Твоя черга") \
     X(T_V_ERROR, "Error", "Помилка") X(T_DONE, "Done", "Готово") X(T_IN, "in ", "за ") X(T_V_HELLO, "Hi!", "Привіт!") \
     X(T_LIMIT, "Limit", "Ліміт") X(T_RESETS_AT, "resets at ", "скидання о ") X(T_NO_WIFI, "No Wi-Fi", "Немає Wi-Fi") \
@@ -39,8 +39,8 @@ const char *langCode(Lang l) { return l == Lang::Uk ? "uk" : "en"; }
     X(T_PAIR_TITLE, "PAIR A COMPUTER", "ПІДКЛЮЧЕННЯ КОМП’ЮТЕРА") X(T_PAIR_ENTER, "Type this code on your PC:", "Введи код на комп’ютері:") \
     X(T_PAIR_VALID, "The code works for 5 minutes", "Код діє 5 хвилин") \
     X(T_U_DAY, "d", "д") X(T_U_HOUR, "h", "г") X(T_U_MIN, "m", "хв") X(T_Q_OPEN, "\"", "«") X(T_Q_CLOSE, "\"", "»") \
-    X(T_ALERT, "Air raid alert", "Тривога") X(T_ALERT_DRONE, "Drones", "Дрони") X(T_ALERT_MISSILE, "Missiles", "Ракети") \
-    X(T_TODAY, "Today", "Сьогодні") X(T_FEELS, "feels", "відчув.") X(T_MPS, "m/s", "м/с") \
+    X(T_ALERT, "Air raid alert", "Тривога") X(T_ALERT_DRONE, "Drones", "Дрони") X(T_ALERT_MISSILE, "Missiles", "Ракети") X(T_ALERT_THREAT, "Threat", "Загроза") X(T_ALERT_PARTIAL, "Partial", "Частково") \
+    X(T_TODAY, "Today", "Сьогодні") X(T_LAST_WEEK, "Week", "Тиждень") X(T_HOURS_SHORT, "h", " год") X(T_FEELS, "feels", "відчув.") X(T_FEELS_SHORT, "feels", "відч.") X(T_MPS, "m/s", "м/с") \
     X(T_ANSWERS, "ans.", "відп.") X(T_COMMIT1, "commit", "коміт") X(T_COMMIT2, "commits", "коміти") \
     X(T_COMMIT5, "commits", "комітів") X(T_MEETING, "Meeting", "Зустріч") X(T_NOW, "Now", "Зараз") \
     X(T_IN_TIME, "In", "Через") X(T_AT, "At", "О") X(T_LEFT, "left", "ще") X(T_W_CLEAR, "clear", "ясно") X(T_W_CLOUDS, "cloudy", "хмарно") \

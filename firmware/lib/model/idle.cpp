@@ -1,4 +1,6 @@
 #include "idle.h"
+#include <cstdlib>
+#include "settings.h"
 #include <math.h>
 #include <string.h>
 
@@ -40,9 +42,36 @@ uint32_t IdleDirector::rnd() {  // xorshift32
 }
 
 void IdleDirector::rest(uint32_t t) {
+    static const uint32_t PCT[3] = {160, 100, 40};  // calm / normal / lively: the pause between actions
+    uint32_t k = PCT[prefs_.freq < 3 ? prefs_.freq : 1];
     act_ = IdleAct::Rest;
     start_ = t;
-    end_ = t + range(REST_MIN, REST_MAX);
+    end_ = t + range(REST_MIN * k / 100, REST_MAX * k / 100);
+}
+
+std::string AnimPrefs::encode() const {
+    if (!favOnly && groups == G_ALL && freq == 1 && !anyFav()) return "";
+    std::string hex;
+    static const char H[] = "0123456789abcdef";
+    for (int i = 0; i < MAX_FAV / 8; i++) { hex += H[favBits[i] >> 4]; hex += H[favBits[i] & 15]; }
+    while (!hex.empty() && hex.back() == '0' && hex[hex.size() - 2] == '0') hex.resize(hex.size() - 2);
+    return std::string(favOnly ? "1," : "0,") + std::to_string(groups) + "," + std::to_string(freq) + "," + hex;
+}
+
+bool AnimPrefs::decode(const std::string &s) {
+    AnimPrefs p;
+    if (!s.empty()) {
+        if (!validAnim(s)) return false;
+        p.favOnly = s[0] == '1';
+        size_t a = s.find(','), b = s.find(',', a + 1), c = s.find(',', b + 1);
+        p.groups = uint8_t(atoi(s.substr(a + 1, b - a - 1).c_str()));
+        p.freq = uint8_t(s[b + 1] - '0');
+        std::string hex = s.substr(c + 1);
+        for (size_t i = 0; i + 1 < hex.size() + 1 && i / 2 < size_t(MAX_FAV / 8); i += 2)
+            p.favBits[i / 2] = uint8_t(strtol(hex.substr(i, 2).c_str(), nullptr, 16));
+    }
+    *this = p;
+    return true;
 }
 
 uint32_t &IdleDirector::lastPlayed(int sceneIndex) {
@@ -88,7 +117,7 @@ void IdleDirector::replay(uint32_t t) {
 
 void IdleDirector::pick(uint32_t t, bool tired) {
     pickOne(t, tired);
-    replays_ = PLAYS - 1;
+    replays_ = act_ == IdleAct::Rest ? 0 : PLAYS - 1;  // nothing allowed to play: just rest
     pendingReplay_ = false;
 }
 
@@ -96,12 +125,13 @@ void IdleDirector::pickOne(uint32_t t, bool tired) {
     const int n = sceneCount();
     bool wasEvent = prevEvent_;
     prevEvent_ = false;
-    const int today = holidayScene();
+    const int today = (prefs_.groups & AnimPrefs::G_HOLIDAY) && !(prefs_.favOnly && prefs_.anyFav()) ? holidayScene() : -1;
     // 1) event scenes (weather, time of day, limits, meeting, alert): when their condition holds, not back to back
     if (!wasEvent)
         for (int i = 0; i < n && i < MAX_SCENES; i++) {
             const Scene &s = sceneAt(i);
             if (s.kind != SceneKind::Event || !s.when(ctx_) || (tired && !s.calm)) continue;
+            if (!(prefs_.groups & AnimPrefs::G_EVENT) && !urgent(s)) continue;  // events off: alert / meeting stay
             if (today >= 0 && !urgent(s)) continue;  // holiday: only the alert / meeting may interrupt
             uint32_t last = lastPlayed(i);
             if (last && t - last < cooldownTicks(s)) continue;
@@ -111,8 +141,20 @@ void IdleDirector::pickOne(uint32_t t, bool tired) {
         }
     // 2) holiday today: only the holiday scene(s) all day
     if (today >= 0) { startScene(t, today); return; }
+    // favourites only: a random starred scene, not the same twice in a row when there is a choice
+    if (prefs_.favOnly && prefs_.anyFav()) {
+        int fav[MAX_SCENES], nf = 0;
+        for (int i = 0; i < n && i < MAX_SCENES; i++)
+            if (prefs_.fav(i) && sceneAt(i).kind != SceneKind::Work) fav[nf++] = i;
+        if (nf) {
+            int k = int(rnd() % uint32_t(nf));
+            if (nf > 1 && fav[k] == prevScene_) k = (k + 1 + int(rnd() % uint32_t(nf - 1))) % nf;
+            startScene(t, fav[k]);
+            return;
+        }
+    }
     // 3) a rare surprise: at most one a day
-    if (ctx_.synced) {
+    if (ctx_.synced && (prefs_.groups & AnimPrefs::G_RARE)) {
         int key = ctx_.year * 400 + ctx_.month * 32 + ctx_.day;
         if (key != rareDay_ && rnd() % 1000 < RARE_PER_MILLE) {
             int rare[16], nr = 0;
@@ -124,13 +166,16 @@ void IdleDirector::pickOne(uint32_t t, bool tired) {
         }
     }
     // 4) weekend: lazy weekend scenes part of the time
-    if (ctx_.synced && (ctx_.wday == 0 || ctx_.wday == 6) && rnd() % 100 < WEEKEND_PERCENT) {
+    bool dailyOn = prefs_.groups & AnimPrefs::G_DAILY;
+    if (ctx_.synced && (prefs_.groups & AnimPrefs::G_WEEKEND) && (ctx_.wday == 0 || ctx_.wday == 6) &&
+        (!dailyOn || rnd() % 100 < WEEKEND_PERCENT)) {
         int wk[8], nw = 0;
         for (int i = 0; i < n && nw < 8; i++)
             if (sceneAt(i).kind == SceneKind::Weekend && i != prevScene_) wk[nw++] = i;
         if (nw) { startScene(t, wk[rnd() % uint32_t(nw)]); return; }
     }
     // 5) random: classic actions + daily scenes, never the same twice in a row
+    if (!dailyOn) { rest(t); return; }  // every allowed group is empty right now
     const IdleAct *list = tired ? CALM : ALL;
     int legacy = int(tired ? sizeof CALM / sizeof CALM[0] : sizeof ALL / sizeof ALL[0]);
     int daily[MAX_SCENES], nd = 0;

@@ -4,6 +4,7 @@
 #include "idle.h"
 #include "sprites.h"
 #include "scene.h"
+#include "settings.h"
 #include <cstring>
 #include <vector>
 
@@ -337,6 +338,73 @@ void test_daily_scenes_join_the_random_pool() {
     TEST_ASSERT_TRUE(scenes.size() >= 25);  // most of the 33 daily scenes show up
 }
 
+void test_favourites_only_plays_just_them() {
+    IdleDirector d(29);
+    AnimPrefs a;
+    a.favOnly = true;
+    a.setFav(sceneIdx("coffee"), true);
+    a.setFav(sceneIdx("guitar"), true);
+    d.setPrefs(a);
+    std::set<int> seen;
+    for (auto &p : plays(d, 0, 200000)) seen.insert(p.key);
+    TEST_ASSERT_EQUAL(2, int(seen.size()));
+    TEST_ASSERT_TRUE(seen.count(sceneIdx("coffee")) && seen.count(sceneIdx("guitar")));
+    AnimPrefs none;  // favourites mode with nothing starred: the usual random pool
+    none.favOnly = true;
+    d.setPrefs(none);
+    std::set<int> more;
+    for (auto &p : plays(d, 200000, 400000)) more.insert(p.key);
+    TEST_ASSERT_TRUE(more.size() > 10);
+}
+
+void test_groups_switch_off_holidays_and_events_but_not_the_alert() {
+    IdleDirector d(31);
+    AnimPrefs a;
+    a.groups = AnimPrefs::G_DAILY;  // no weekend, rare, holiday, event scenes
+    d.setPrefs(a);
+    SceneCtx c;
+    c.synced = true; c.year = 2026; c.month = 8; c.day = 24; c.wday = 1; c.hour = 15;  // Independence Day
+    c.weather = Weather::Rain;
+    d.setContext(c);
+    for (auto &p : plays(d, 0, 60000))
+        if (p.key < 500) TEST_ASSERT_TRUE_MESSAGE(sceneAt(p.key).kind == SceneKind::Daily, sceneAt(p.key).name);
+    c.alert = true;  // the alert scene still plays
+    d.setContext(c);
+    int alert = 0;
+    for (auto &p : plays(d, 60000, 120000)) alert += p.key == sceneIdx("alert");
+    TEST_ASSERT_TRUE(alert > 0);
+}
+
+void test_frequency_changes_the_pause_between_actions() {
+    int count[3];
+    for (int f = 0; f < 3; f++) {
+        IdleDirector d(37);
+        AnimPrefs a;
+        a.freq = uint8_t(f);
+        d.setPrefs(a);
+        count[f] = int(groups(plays(d, 0, 200000)).size());
+    }
+    TEST_ASSERT_TRUE(count[0] < count[1] && count[1] < count[2]);
+}
+
+void test_anim_prefs_text_roundtrip() {
+    AnimPrefs a;
+    TEST_ASSERT_TRUE(a.decode(""));  // defaults
+    TEST_ASSERT_FALSE(a.favOnly);
+    TEST_ASSERT_EQUAL(AnimPrefs::G_ALL, a.groups);
+    TEST_ASSERT_EQUAL(1, a.freq);
+    a.favOnly = true; a.groups = 5; a.freq = 2;
+    a.setFav(0, true); a.setFav(7, true); a.setFav(99, true);
+    AnimPrefs b;
+    TEST_ASSERT_TRUE(b.decode(a.encode()));
+    TEST_ASSERT_TRUE(b.favOnly && b.groups == 5 && b.freq == 2 && b.fav(0) && b.fav(7) && b.fav(99) && !b.fav(1));
+    TEST_ASSERT_TRUE(validAnim(a.encode()));
+    TEST_ASSERT_FALSE(validAnim("1,99,1,"));
+    TEST_ASSERT_FALSE(validAnim("2,31,1,"));
+    TEST_ASSERT_FALSE(validAnim("1,31,3,"));
+    TEST_ASSERT_FALSE(validAnim("1,31,1,zz"));
+}
+
 void test_event_scene_plays_next_and_then_cools_down() {
     IdleDirector d(19);
     SceneCtx c;
@@ -439,5 +507,9 @@ int main() {
     RUN_TEST(test_snow_falls_inside_the_stage);
     RUN_TEST(test_fireworks_burst_inside_the_stage_and_grow);
     RUN_TEST(test_tree_lights_blink_in_turn);
+    RUN_TEST(test_favourites_only_plays_just_them);
+    RUN_TEST(test_groups_switch_off_holidays_and_events_but_not_the_alert);
+    RUN_TEST(test_frequency_changes_the_pause_between_actions);
+    RUN_TEST(test_anim_prefs_text_roundtrip);
     return UNITY_END();
 }

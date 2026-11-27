@@ -11,9 +11,16 @@
 #include "fetch.h"
 #include "qrcode.h"
 #include "wifisetup.h"
+#include "scenetitles.h"
+#include "device.h"
 
-static TFT_eSprite hero(&tft);   // big mascot + accessory
+extern bool safeBoot;
 static TFT_eSprite stage(&tft);  // 4-bit palette stage between the gauges for the idle mascot
+// The work screens' big mascot shares the stage buffer (never on screen together, both fully redrawn before each
+// push): saves 5.5 KB of heap. Only its top HERO_H rows are pushed.
+static TFT_eSprite &hero = stage;
+static_assert(lay::HERO_W == lay::CR - lay::CL && lay::HERO_H <= lay::STAGE_H, "hero must fit the stage buffer");
+static void pushHero() { hero.pushSprite(lay::HERO_X, lay::HERO_Y, 0, 0, lay::HERO_W, lay::HERO_H); }
 static void pushStageScaled();  // clock stage at 1.2x
 static IdleDirector idle;
 static uint32_t lastIdleTick = UINT32_MAX;
@@ -56,9 +63,6 @@ static uint16_t PALETTE[16] = {col::BG,      col::CLAY, col::EYE,   col::LID,   
                                col::DIM,     col::GREY_BODY, col::SLEEP_INK, col::GREEN};  // 15: season green
 
 void screensBegin() {
-    hero.setColorDepth(4);  // 4-bit palette: 5.5 KB instead of 22 KB
-    hero.createSprite(lay::HERO_W, lay::HERO_H);
-    hero.createPalette(PALETTE, 16);
     stage.setColorDepth(4);
     stage.createSprite(lay::CR - lay::CL, STAGE_H);
     stage.createPalette(PALETTE, 16);
@@ -108,12 +112,17 @@ static void topBar(const Model &m, const View &v, const LocalTime &lt, const Net
     }
     // after the date: red / amber "!" during an alert, else blue minutes to a meeting starting within 10 min
     AlertLevel al = infoState().alert(millis());
-    uint16_t mark = al == AlertLevel::None ? 0 : (al == AlertLevel::Drone ? col::AMBER : col::RED);
+    uint16_t mark = al == AlertLevel::None ? 0 : al == AlertLevel::Drone ? col::AMBER : al == AlertLevel::Threat ? col::YELLOW
+                  : al == AlertLevel::Partial ? col::PINK : col::RED;
     String markText = "!";
     int soon = lt.synced ? infoState().meetingSoonMin(uint32_t(time(nullptr))) : -1;
     if (!mark && soon >= 0) {
         mark = col::BLUE;
         markText = resetShort(long(soon) * 60, false).c_str();
+    }
+    if (!mark && (safeBoot || infoState().alertsUnknown(millis()))) {  // grey: safe mode, or alerts can't be trusted
+        mark = col::DIM;
+        markText = safeBoot ? "safe" : "?";
     }
     String key = left + "|" + busy + "/" + total + "|" + String(rc) + "|" + mark + markText;
     if (key == lastTopL) return;
@@ -181,6 +190,26 @@ static void workLines(const String &verb, uint16_t vc, const String &target, con
     line(2, lay::DETAIL_Y, 20, F_S3, detail, col::INK);
 }
 
+// Context window of the focused session under the work lines: "context 72%" + a thin bar; amber from 80 %,
+// red "compact soon" from 90 %. Kept clear of the reset timers next to the gauges (x 34..206).
+static const uint32_t PERMISSION_PULSE_MS = 5u * 60000u;
+static String ctxShown;
+static void contextBar(const ClaudeSession *f) {
+    int pct = f ? f->ctx : -1;
+    String key = String(pct) + int(lang());
+    if (key == ctxShown) return;
+    ctxShown = key;
+    static const int X0 = 34, X1 = 206, BASE = 212, BAR_Y = 218, BAR_X = 50, BAR_W = 140;
+    tft.fillRect(X0, 198, X1 - X0, 26, col::BG);
+    if (pct < 0) return;
+    int lv = contextLevel(pct);
+    uint16_t c = lv == 2 ? col::RED : lv == 1 ? col::AMBER : col::MUTED;
+    String label = String(tr(lv == 2 ? T_COMPACT_SOON : T_CONTEXT)) + " " + pct + "%";
+    text(F_S3, label, lay::CX, BASE, lv ? c : col::MUTED, col::BG, C_BASELINE);
+    tft.fillRect(BAR_X, BAR_Y, BAR_W, 4, col::TRACK);
+    tft.fillRect(BAR_X, BAR_Y, BAR_W * pct / 100, 4, lv ? c : col::CLAY);
+}
+
 static const ClaudeSession *newest(const Model &m) {
     const ClaudeSession *n = nullptr;
     for (const auto &s : m.sessions())
@@ -202,10 +231,13 @@ static void drawWorkBody(const Model &m, const View &v, uint32_t now) {
             workLines(verb, col::CLAY, target, S(utf8Truncate(f->project, 14)) + " · " + mmss(now - f->sinceMs));
             break;
         }
-        case Screen::Permission:
-            workLines(tr(T_V_ALLOW), col::AMBER, S(utf8Truncate(f->target, 22)),
+        case Screen::Permission: {
+            // forgotten for 5+ min: the title pulses amber / white to catch the eye from across the room
+            bool pulse = now - f->sinceMs >= PERMISSION_PULSE_MS && (now / 700) % 2;
+            workLines(tr(T_V_ALLOW), pulse ? col::INK : col::AMBER, S(utf8Truncate(f->target, 22)),
                       S(f->tool.empty() ? f->project : f->tool) + " · " + tr(T_WAITING) + mmss(now - f->sinceMs));
             break;
+        }
         case Screen::YourTurn:
             workLines(tr(T_V_YOURTURN), col::AMBER, S(utf8Truncate(f->project, 22)), String(tr(T_WAITING)) + mmss(now - f->sinceMs));
             break;
@@ -258,9 +290,114 @@ static void drawMulti(const Model &m) {
     }
 }
 
+// Clock faces (settings "face"): 0 classic (JBMono 60 px), 1 minimal (48 px, blinking colon), 2 pixel (5x7 LED digits).
+static const uint8_t PIX_DIGITS[10][7] PROGMEM = {  // 5 bits per row, MSB = left
+    {14, 17, 19, 21, 25, 17, 14}, {4, 12, 4, 4, 4, 4, 14},   {14, 17, 1, 2, 4, 8, 31},  {31, 2, 4, 2, 1, 17, 14},
+    {2, 6, 10, 18, 31, 2, 2},     {31, 16, 30, 1, 1, 17, 14}, {6, 8, 16, 30, 17, 17, 14}, {31, 1, 2, 4, 8, 8, 8},
+    {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 2, 12}};
+static const int PIX = 6, PIX_DOT = 5, PIX_GAP = 6, PIX_COLON = 12;  // LED dot 5 px in a 6 px grid
+static const int PIX_W = 4 * 5 * PIX + 3 * PIX_GAP + PIX_COLON;    // 150 px: fits the 184 px column
+static_assert(PIX_W <= lay::CR - lay::CL && 7 * PIX <= lay::STAGE_Y - lay::TIME_CLEAR_TOP, "pixel face fits");
+
+static void pixelDigit(int d, int x, int y, uint16_t c) {
+    for (int r = 0; r < 7; r++) {
+        uint8_t bits = pgm_read_byte(&PIX_DIGITS[d][r]);
+        for (int k = 0; k < 5; k++)
+            if (bits & (16 >> k)) tft.fillRect(x + k * PIX, y + r * PIX, PIX_DOT, PIX_DOT, c);
+    }
+}
+
+static void pixelTime(const LocalTime &lt, int y) {
+    int x = lay::CX - PIX_W / 2;
+    int dg[4] = {lt.hour / 10, lt.hour % 10, lt.min / 10, lt.min % 10};
+    for (int i = 0; i < 4; i++) {
+        pixelDigit(dg[i], x, y, col::CLAY);
+        x += 5 * PIX + (i == 1 ? 0 : PIX_GAP);
+        if (i == 1) {  // colon: two dots in the middle of a 12 px slot
+            tft.fillRect(x + 3, y + 2 * PIX, PIX_DOT, PIX_DOT, col::CLAY);
+            tft.fillRect(x + 3, y + 4 * PIX, PIX_DOT, PIX_DOT, col::CLAY);
+            x += PIX_COLON;
+        }
+    }
+}
+
+// Minimal face: "HH" and "MM" right / left of a colon that blinks every second (drawn alone between minutes).
+static void minimalColon(uint32_t now, bool force) {
+    static int shown = -1;
+    int on = (now / 1000) % 2;
+    if (on == shown && !force) return;
+    shown = on;
+    int cw = textWidth(F_BIG, ":");
+    tft.fillRect(lay::CX - cw / 2, lay::TIME_Y + 14, cw, lay::STAGE_Y - lay::TIME_Y - 14, col::BG);  // the whole glyph
+    if (on) text(F_BIG, ":", lay::CX, lay::TIME_Y + 14, col::MUTED, col::BG, TC_DATUM, false);
+}
+
+// 3 segment: LCD digits, unlit segments faintly visible.
+static void segDigit(int d, int x, int y, uint16_t on, uint16_t off) {
+    static const uint8_t M[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};  // bits a..g
+    const int w = 30, h = 46, t = 6;
+    const int R[7][4] = {{x + t, y, w - 2 * t, t},         {x + w - t, y + t, t, h / 2 - t}, {x + w - t, y + h / 2, t, h / 2 - t},
+                         {x + t, y + h - t, w - 2 * t, t}, {x, y + h / 2, t, h / 2 - t},     {x, y + t, t, h / 2 - t},
+                         {x + t, y + h / 2 - t / 2, w - 2 * t, t}};
+    for (int k = 0; k < 7; k++) tft.fillRect(R[k][0], R[k][1], R[k][2], R[k][3], (M[d] >> k & 1) ? on : off);
+}
+
+static void segmentTime(const LocalTime &lt) {
+    const uint16_t on = col::AMBER, off = rgb565(0x1C, 0x14, 0x08);
+    int dg[4] = {lt.hour / 10, lt.hour % 10, lt.min / 10, lt.min % 10}, x = lay::CX - 82;
+    for (int i = 0; i < 4; i++) { segDigit(dg[i], x, 30, on, off); x += 36 + (i == 1 ? 14 : 0); }
+    tft.fillRect(lay::CX - 3, 42, 6, 6, on);
+    tft.fillRect(lay::CX - 3, 60, 6, 6, on);
+}
+
+// 4 flip: two dark cards with a split line, like a desk flip clock.
+static void flipTime(const LocalTime &lt) {
+    char b[3];
+    for (int i = 0; i < 2; i++) {
+        int cx = i ? lay::CX + 42 : lay::CX - 42;
+        tft.fillSmoothRoundRect(cx - 40, 28, 80, 48, 8, col::TRACK, col::BG);
+        snprintf(b, sizeof b, "%02d", i ? lt.min : lt.hour);
+        text(F_BIG, b, cx, 52, col::INK, col::TRACK, MC_DATUM, false);
+        tft.fillRect(cx - 40, 51, 80, 2, col::BG);
+    }
+}
+
+// 6 binary: BCD dots (hour tens 2, hour ones 4, minute tens 3, minute ones 4), the time small underneath.
+static void binaryTime(const LocalTime &lt) {
+    const int v[4] = {lt.hour / 10, lt.hour % 10, lt.min / 10, lt.min % 10}, bits[4] = {2, 4, 3, 4};
+    for (int i = 0; i < 4; i++) {
+        int cx = 60 + i * 34 + (i > 1 ? 12 : 0);
+        for (int b = 0; b < bits[i]; b++)
+            tft.fillSmoothCircle(cx, 66 - b * 11, 4, (v[i] >> b & 1) ? col::CLAY : rgb565(0x2A, 0x20, 0x18), col::BG);
+    }
+    text(F_S3, hhmm(lt), lay::CX, 78, col::MUTED, col::BG, BC_DATUM, false);
+}
+
+// 1 minimal / 5 terminal: something blinks every second between minute redraws (colon / cursor).
+static void terminalCursor(uint32_t now, bool force) {
+    static int shown = -1;
+    int on = (now / 1000) % 2;
+    if (on == shown && !force) return;
+    shown = on;
+    int x = 34 + textWidth(F_BIG, "00:00") + 4;
+    tft.fillRect(x, 44, 16, 30, on ? col::CLAY : col::BG);
+}
+
+static void terminalTime(const LocalTime &lt, uint32_t now) {
+    text(F_LIM, "$ date +%H:%M", 34, 40, col::MUTED, col::BG, BL_DATUM, false);
+    text(F_BIG, hhmm(lt), 34, 76, col::INK, col::BG, BL_DATUM, false);
+    terminalCursor(now, true);
+}
+
 static void drawClockTime(const LocalTime &lt, uint32_t now, bool sleep) {
     int key = lt.synced ? lt.hour * 60 + lt.min : -int(now / 5000);  // unsynced: refresh diag every 5 s
-    if (key == lastMinuteKey) return;
+    int face = lt.synced && !sleep ? deviceFace() : 0;
+    key = key * 8 + face;  // a new face redraws at once
+    if (key == lastMinuteKey) {
+        if (face == 1) minimalColon(now, false);
+        if (face == 5) terminalCursor(now, false);
+        return;
+    }
     lastMinuteKey = key;
     if (sleep) {
         tft.fillRect(lay::CL - 2, lay::SLEEP_CLEAR_TOP, lay::CR - lay::CL + 4, lay::SLEEP_CLEAR_BOTTOM - lay::SLEEP_CLEAR_TOP, TFT_BLACK);
@@ -268,12 +405,32 @@ static void drawClockTime(const LocalTime &lt, uint32_t now, bool sleep) {
         if (lt.synced) text(F_TOP, dateShort(lt), lay::CX, lay::SLEEP_DATE_Y, col::SLEEP_INK, TFT_BLACK, TC_DATUM, false);
     } else {
         tft.fillRect(lay::CL, lay::TIME_CLEAR_TOP, lay::CR - lay::CL, lay::STAGE_Y - lay::TIME_CLEAR_TOP, col::BG);
-        text(F_TIME_S, hhmm(lt), lay::CX, lay::TIME_Y, col::INK, col::BG, TC_DATUM, false);
+        if (face == 2) {
+            pixelTime(lt, lay::TIME_CLEAR_TOP + 6);
+        } else if (face == 3) {
+            segmentTime(lt);
+        } else if (face == 4) {
+            flipTime(lt);
+        } else if (face == 5) {
+            terminalTime(lt, now);
+        } else if (face == 6) {
+            binaryTime(lt);
+        } else if (face == 1) {
+            char hh[3], mm[3];
+            snprintf(hh, sizeof hh, "%02d", lt.hour);
+            snprintf(mm, sizeof mm, "%02d", lt.min);
+            int half = textWidth(F_BIG, ":") / 2 + 2;
+            text(F_BIG, hh, lay::CX - half, lay::TIME_Y + 14, col::INK, col::BG, TR_DATUM, false);
+            text(F_BIG, mm, lay::CX + half, lay::TIME_Y + 14, col::INK, col::BG, TL_DATUM, false);
+            minimalColon(now, true);
+        } else {
+            text(F_TIME_S, hhmm(lt), lay::CX, lay::TIME_Y, col::INK, col::BG, TC_DATUM, false);
+        }
     }
 }
 
 static void drawLimitReached(const Model &m, time_t epoch, const LocalTime &lt) {
-    const Limit &l = m.limit5h().pct >= 100 ? m.limit5h() : m.limit7d();
+    const Limit &l = m.limitShown();
     long left = (long)l.resetsAt - (long)epoch;
     if (left < 0) left = 0;
     char b[12];
@@ -473,7 +630,7 @@ static void animHero(const SpriteFrame &f, int dx, int dy, int accessory, uint32
     if (accessory == 1) pixelSpinner(hero, 158, 12, tick, P_BODY);
     if (accessory == 2) { hero.fillCircle(160, 12, 11, P_STAR); drawBang(hero, 160, 7, P_EYE); }
     if (accessory == 3) { hero.drawCircle(160, 12, 10, P_STAR); hero.drawCircle(160, 12, 9, P_STAR); drawBang(hero, 160, 7, P_STAR); }
-    hero.pushSprite(lay::HERO_X, lay::HERO_Y);
+    pushHero();
     if (hat) hatOnTft(lay::CX - 42, lay::HERO_Y + 4 - 3 * lay::HERO_PX, lay::HERO_PX);
 }
 
@@ -687,6 +844,8 @@ static const char ICONS[][10][13] PROGMEM = {
      ".yy...yy....", "............", "............"},  // Star
     {"..i.....i...", ".cciccccicc.", ".cccccccccc.", ".iiiiiiiiii.", ".i.ii.ii.ii.", ".iiiiiiiiii.", ".ii.ii.ii.i.",
      ".iiiiiiiiii.", "............", "............"},  // Calendar
+    {"............", ".ffffffffff.", "ffffffffffff", "ff........ff", "ff.ffffff.ff", "ff........ff", "ffffffffffff",
+     ".ffffffffff.", "..ff........", ".f.........."},  // Message (speech bubble, card text colour)
 };
 
 static void drawIcon(InfoIcon ic, int x, int y, uint16_t fg) {
@@ -774,7 +933,7 @@ static void drawWorkScene(const Model &m, const View &v, const LocalTime &lt, ui
     hero.fillSprite(S_BG);
     SpriteCanvas c(hero, lay::HERO_X, lay::HERO_Y);
     sc.draw(c, it - start, it);
-    hero.pushSprite(lay::HERO_X, lay::HERO_Y);
+    pushHero();
     hero.createPalette(PALETTE, 16);
 }
 
@@ -800,7 +959,7 @@ static SceneCtx sceneContext(const Model &m, const LocalTime &lt, uint32_t now) 
     c.weekClosed = lt.wday == 5;
     const Info &in = infoState();
     c.weather = in.weather(now);
-    c.alert = in.alert(now) != AlertLevel::None;
+    c.alert = isAlert(in.alert(now));
     c.alertEnded = in.alertEnded(now);
     uint32_t epoch = lt.synced ? uint32_t(time(nullptr)) : 0;
     c.meetingSoon = in.meetingSoonMin(epoch) >= 0;
@@ -877,7 +1036,7 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
         tft.fillScreen(v.screen == Screen::Sleep ? TFT_BLACK : col::BG);
         lastMinuteKey = -1000;
         lastIdleTick = UINT32_MAX;
-        captionShown = dotsShown = "";
+        captionShown = dotsShown = ctxShown = "";
         lastTopL = lastGauge = "";
         for (auto &c : lineCache) c = "";
         frame = true;
@@ -897,8 +1056,10 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
         case Screen::LimitReached: drawLimitReached(m, epoch, lt); break;
         case Screen::Multi: drawMulti(m); break;
         default:
-            if (isWorkScreen(v.screen) && (v.focus || v.screen == Screen::Done || v.screen == Screen::Hello))
+            if (isWorkScreen(v.screen) && (v.focus || v.screen == Screen::Done || v.screen == Screen::Hello)) {
                 drawWorkBody(m, v, now);
+                contextBar(v.focus);
+            }
             break;
     }
     bool workAnim = isWorkScreen(v.screen);
@@ -912,6 +1073,15 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
         if (it != lastIdleTick) {
             lastIdleTick = it;
             idle.setContext(sceneContext(m, lt, now));
+            {
+                static String animShown = "-";
+                if (animShown != deviceAnim()) {  // parse only when the setting changed
+                    animShown = deviceAnim();
+                    AnimPrefs a;
+                    a.decode(animShown.c_str());
+                    idle.setPrefs(a);
+                }
+            }
             bool tired = !m.limitsStale(now) && m.limit5h().pct >= 90;
             bool midnight = (lt.synced && lt.month == 1 && lt.day == 1 && lt.hour == 0 && lt.min == 0) ||
                             (preview && nyPreviewMidnight);
@@ -919,12 +1089,24 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
             const char *caption = nullptr, *date = nullptr;
             if (v.screen == Screen::Clock) {
                 IdlePose pose = idle.pose(it, lt.min, tired);
-                if (idle.act() != IdleAct::Scene && (demoOnly >= 0 || demoNext >= 0)) {  // preview requested
-                    while (demoNext >= 0 && demoNext < sceneCount() && sceneAt(demoNext).kind == SceneKind::Work) demoNext++;
-                    if (demoOnly >= 0) { idle.playScene(it, demoOnly); demoOnly = -1; }
-                    else if (demoNext < sceneCount()) idle.playScene(it, demoNext++);
+                static int previewing = -1;  // a scene asked for from the page / CLI: not cut short by the pin
+                if (previewing >= 0 && !(idle.act() == IdleAct::Scene && idle.sceneIndex() == previewing)) previewing = -1;
+                if (demoOnly >= 0) {  // "play now": at once, even over a playing (or pinned) scene
+                    idle.playScene(it, demoOnly);
+                    previewing = demoOnly;
+                    demoOnly = -1;
+                    pose = idle.pose(it, lt.min, tired);
+                } else if (idle.act() != IdleAct::Scene && demoNext >= 0) {  // "all in turn"
+                    while (demoNext < sceneCount() && sceneAt(demoNext).kind == SceneKind::Work) demoNext++;
+                    if (demoNext < sceneCount()) { previewing = demoNext; idle.playScene(it, demoNext++); }
                     else demoNext = -1;
                     pose = idle.pose(it, lt.min, tired);
+                } else if (demoNext < 0 && previewing < 0) {  // a pinned scene loops instead of the random pick
+                    int pin = pinnedScene(devicePin(), lt.synced ? uint32_t(epoch) : 0);
+                    if (pin >= 0 && !(idle.act() == IdleAct::Scene && idle.sceneIndex() == pin)) {
+                        idle.playScene(it, pin);
+                        pose = idle.pose(it, lt.min, tired);
+                    }
                 }
                 if (idle.act() == IdleAct::Scene) {
                     const Scene &sc = sceneAt(idle.sceneIndex());
@@ -937,6 +1119,15 @@ void screensUpdate(const Model &m, uint32_t now, const LocalTime &lt, time_t epo
                 if (midnight) {  // New Year: the year banner takes the card's place
                     drawInfoCard(InfoIcon::None, "", "", 0, 0, 0);
                     card.items = 0;
+                } else if (card.tone == 5) {  // threat (yellow level)
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, rgb565(0xF0, 0xD8, 0x90),
+                                 rgb565(0x4A, 0x3A, 0x00));
+                } else if (card.tone == 6) {  // partial alert
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, rgb565(0xFF, 0xD0, 0xC0),
+                                 rgb565(0x5A, 0x14, 0x10));
+                } else if (card.tone == 4) {  // `claude-clock say`: pinned, green
+                    drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, rgb565(0xC0, 0xF0, 0xC8),
+                                 rgb565(0x14, 0x4C, 0x24));
                 } else if (card.tone == 3) {  // meeting soon / now: pinned, blue
                     drawInfoCard(card.icon, card.line1.c_str(), card.line2.c_str(), col::INK, rgb565(0xC8, 0xD8, 0xF8),
                                  rgb565(0x18, 0x34, 0x70));

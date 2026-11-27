@@ -5,7 +5,10 @@
 #include <string>
 #include "scene.h"
 
-enum class AlertLevel : uint8_t { None, Alert, Drone, Missile };  // Alert: on, level unknown (ubilling)
+// Alert: on, level unknown (ubilling). From alerts.in.ua (via the computer): Drone / Missile (whole oblast), Partial
+// (only some districts / hromadas), Threat (yellow level: a possible alert, not an alert yet).
+enum class AlertLevel : uint8_t { None, Alert, Drone, Missile, Threat, Partial };
+inline bool isAlert(AlertLevel l) { return l != AlertLevel::None && l != AlertLevel::Threat; }
 
 struct WeatherNow {
     int id = 0;          // OpenWeather condition id (2xx storm ... 800 clear, 80x clouds)
@@ -15,7 +18,7 @@ struct WeatherNow {
     bool night = false;  // OpenWeather icon "..n"
 };
 
-enum class InfoIcon : uint8_t { None, Sun, Moon, SunCloud, MoonCloud, Cloud, Rain, Snow, Storm, Fog, Claude, Siren, Star, Calendar };
+enum class InfoIcon : uint8_t { None, Sun, Moon, SunCloud, MoonCloud, Cloud, Rain, Snow, Storm, Fog, Claude, Siren, Star, Calendar, Message };
 
 // A meeting from the computer's calendar (epoch seconds; hm = local start "14:00"; title "" = hidden).
 struct Meeting {
@@ -28,10 +31,13 @@ Weather weatherKind(const WeatherNow &w);                  // for the weather sc
 std::string weatherText(const WeatherNow &w);              // "+3° cloudy" / "+3° хмарно"
 std::string weatherDetail(const WeatherNow &w);            // "feels -4° · wind 5 m/s"
 InfoIcon weatherIcon(const WeatherNow &w);
+Weather precipOf(int owmId);
+std::string forecastHour(int hour);  // forecast steps are whole hours: "18" (uk: "дощ о 18"), "18h" (en)  // Rain / Snow / Storm for a forecast step, else Unknown
 
 // ubilling keys are JSON-escaped ("м. К..."): the exact text to look for, quotes and colon included.
 std::string jsonKey(const std::string &utf8);
-int parseAlertTail(const std::string &tail);  // what follows the key: 1 alert, 0 none, -1 unreadable
+int parseAlertTail(const std::string &tail, std::string *changed = nullptr);  // 1 alert, 0 none, -1 unreadable; changed: "2026-11-26 13:12:47"
+bool parseStamp(const std::string &s, int &y, int &mo, int &d, int &h, int &mi, int &se);  // "YYYY-MM-DD hh:mm:ss"
 bool parseAlerts(const std::string &json, const std::string &region, bool &active);  // false: region not found
 
 
@@ -42,12 +48,33 @@ struct TodaySnap {
     int32_t answers, commits;
 };
 
+// Days since 1970-01-01 of a calendar date (local day number for the week log).
+int32_t daysFromCivil(int y, int m, int d);
+
+// "Today with Claude" of the last 8 days (today + the full previous week), for the Monday "last week" card.
+class WeekLog {
+  public:
+    static constexpr int DAYS = 8;
+    struct Sum { uint32_t busyMin; int answers, commits; };
+    void set(int32_t day, uint32_t busyMs, int answers, int commits);  // the day's counters so far (replaces)
+    Sum lastWeek(int32_t today) const;                                 // days today-7 .. today-1
+    std::string encode() const;                                        // "day:b,a,c;b,a,c;..." oldest first
+    bool decode(const std::string &s);
+
+  private:
+    struct Day { uint16_t busyMin, answers, commits; };
+    int32_t last_ = -1;  // day number of d_[DAYS - 1]
+    Day d_[DAYS] = {};
+};
+
 class Info {
   public:
-    static constexpr uint32_t WEATHER_FRESH_MS = 3600000, ALERT_FRESH_MS = 300000, MAC_LEVEL_MS = 180000,
+    static constexpr uint32_t WEATHER_FRESH_MS = 3600000, FORECAST_FRESH_MS = 3u * 3600000u, ALERT_FRESH_MS = 300000, MAC_LEVEL_MS = 180000,
                               ENDED_SHOW_MS = 600000, CARD_STEP_MS = 5000;
     void onWeather(const WeatherNow &w, uint32_t now);
-    void onAlert(bool active, uint32_t now);              // ubilling answer for the region
+    void onAlert(bool active, uint32_t now, uint32_t sinceEpoch = 0);  // ubilling answer; sinceEpoch: when it began (source)
+    // Next precipitation within the forecast (Unknown: dry ahead); hm = its local start time "18:00".
+    void onForecast(Weather kind, uint32_t atEpoch, const std::string &hm, uint32_t now);
     void onAlertLevel(AlertLevel l, uint32_t now);        // from the Mac (alerts.in.ua): wins while fresh
     // "Today with Claude" (dayKey = month * 32 + day; a new day starts from zero). onBusy is called about once a
     // second: the time since the previous call counts when Claude was busy (gaps over a minute do not count).
@@ -61,18 +88,25 @@ class Info {
     bool inMeeting(uint32_t epoch) const;
     TodaySnap today() const { return TodaySnap{day_, busyMs_, answers_, commits_}; }
     void restore(const TodaySnap &t) { day_ = t.day; busyMs_ = t.busyMs; answers_ = t.answers; commits_ = t.commits; }
+    // `claude-clock say`: a message pinned on the card for forMs (empty text or 0 ms clears it).
+    void onMessage(const std::string &title, const std::string &detail, uint32_t now, uint32_t forMs);
+    WeekLog &week() { return week_; }
+    void setDay(int32_t dayNum, int wday) { dayNum_ = dayNum; wday_ = wday; }  // local day number, 0 = Sunday
     void alertsOff() { hasUb_ = hasMac_ = on_ = ended_ = false; }  // region cleared: no alert, no all-clear
 
     bool hasWeather(uint32_t now) const { return hasWx_ && now - wxAt_ < WEATHER_FRESH_MS; }
     const WeatherNow &weatherNow() const { return wx_; }
     Weather weather(uint32_t now) const { return hasWeather(now) ? weatherKind(wx_) : Weather::Unknown; }
     AlertLevel alert(uint32_t now) const;
+    // Region set but no source answered for ALERT_FRESH_MS (after the same grace from boot): alerts can't be trusted.
+    bool alertsUnknown(uint32_t now) const;
     bool alertEnded(uint32_t now) const { return ended_ && now - endedAt_ < ENDED_SHOW_MS; }
 
     struct Card {
         InfoIcon icon = InfoIcon::None;
         std::string line1, line2;  // line1 empty: no card
-        uint8_t tone = 0;          // 0 normal, 1 yellow (drones), 2 red (alert / missiles)
+        uint8_t tone = 0;  // 0 normal, 1 amber (drones), 2 red (alert / missiles), 3 blue (meeting), 4 green (message),
+                           // 5 yellow (threat), 6 dark red (partial alert)
         uint8_t items = 0, index = 0;  // rotation dots: how many, which one is shown (0 items: no dots)
     };
     Card card(uint32_t now, int dayKey, uint32_t epoch = 0) const;  // epoch 0: time unknown (no meetings)
@@ -80,7 +114,11 @@ class Info {
   private:
     void track(uint32_t now);  // alert start / end from the effective level
     WeatherNow wx_;
+    Weather fcKind_ = Weather::Unknown;
+    uint32_t fcAt_ = 0, fcRx_ = 0;
+    int fcHour_ = -1;
     uint32_t wxAt_ = 0, ubAt_ = 0, macAt_ = 0, since_ = 0, endedAt_ = 0;
+    uint32_t srcSince_ = 0;  // alert start by the source (epoch), 0 unknown
     bool hasWx_ = false, hasUb_ = false, hasMac_ = false, ubOn_ = false, on_ = false, ended_ = false;
     AlertLevel mac_ = AlertLevel::None;
     void day(int dayKey);
@@ -89,6 +127,11 @@ class Info {
     bool busyCalled_ = false, prevBusy_ = false;
     int answers_ = 0, commits_ = 0;
     std::string region_;
+    WeekLog week_;
+    std::string msg_, msgDetail_;
+    uint32_t msgAt_ = 0, msgFor_ = 0;
+    int32_t dayNum_ = -1;
+    int wday_ = -1;
     Meeting meetings_[MAX_MEETINGS];
     int nMeetings_ = 0;
     const Meeting *nextMeeting(uint32_t epoch) const;  // ongoing or next, nullptr: none

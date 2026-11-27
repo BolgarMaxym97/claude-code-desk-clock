@@ -13,6 +13,7 @@ Ev parseEvent(const char *hookName, const char *kind) {
         {"Stop", Ev::Stop}, {"StopFailure", Ev::StopFailure}, {"SessionEnd", Ev::SessionEnd},
     };
     if (!hookName) return Ev::Unknown;
+    if (std::strcmp(hookName, "StopFailure") == 0 && kind && std::strcmp(kind, "limit") == 0) return Ev::LimitHit;
     if (std::strcmp(hookName, "Notification") == 0) {
         if (kind && std::strcmp(kind, "permission") == 0) return Ev::NotifyPermission;
         if (kind && std::strcmp(kind, "idle") == 0) return Ev::NotifyIdle;
@@ -111,6 +112,7 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
             setState(SState::Thinking);
             break;
         case Ev::PreToolUse:
+            limitHit_ = false;
             s->tool = e.tool;
             s->target = e.target;
             s->toolMs = nowMs;
@@ -131,7 +133,7 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
             break;
         case Ev::SubagentStart: s->agents++; break;
         case Ev::SubagentStop: if (s->agents > 0) s->agents--; break;
-        case Ev::PreCompact: setState(SState::Compacting); break;
+        case Ev::PreCompact: setState(SState::Compacting); s->ctx = -1; break;
         case Ev::NotifyPermission:
             if (!e.tool.empty()) s->tool = e.tool;
             if (!e.target.empty()) s->target = e.target;
@@ -139,6 +141,7 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
             break;
         case Ev::NotifyIdle: setState(SState::YourTurn); break;
         case Ev::Stop:
+            limitHit_ = false;
             s->agents = 0;
             setState(SState::Idle);
             doneDurationMs_ = s->hasPrompt ? nowMs - s->promptMs : 0;
@@ -148,6 +151,11 @@ void Model::onEvent(const EventIn &e, uint32_t nowMs) {
         case Ev::StopFailure:
             s->agents = 0;
             setState(SState::Error);
+            break;
+        case Ev::LimitHit:  // usage limit: not an error, the clock shows when it resets
+            s->agents = 0;
+            setState(SState::Idle);
+            limitHit_ = true;
             break;
         default: break;
     }
@@ -168,11 +176,17 @@ void Model::tick(uint32_t nowMs) {
     if (removed && sessions_.empty()) silent_ = true;
 }
 
-bool isNight(const LocalTime &t) {
-    return t.synced && (t.hour >= NIGHT_FROM_H || t.hour < NIGHT_TO_H);
+bool isNight(const LocalTime &t, int from, int to) {
+    if (!t.synced || from == to) return false;
+    return from < to ? (t.hour >= from && t.hour < to) : (t.hour >= from || t.hour < to);
 }
 
 static int clampPct(int p) { return p < 0 ? 0 : (p > 100 ? 100 : p); }
+
+void Model::onContext(const std::string &session, int pct) {
+    if (pct < 0) return;
+    if (ClaudeSession *s = findMut(session)) s->ctx = int8_t(clampPct(pct));
+}
 
 void Model::onLimits(int h5pct, uint32_t h5reset, int d7pct, uint32_t d7reset, uint32_t nowMs) {
     h5_.pct = clampPct(h5pct);
@@ -181,10 +195,11 @@ void Model::onLimits(int h5pct, uint32_t h5reset, int d7pct, uint32_t d7reset, u
     d7_.resetsAt = d7reset;
     hasLimits_ = true;
     limitsRxMs_ = nowMs;
+    if (h5_.pct < 95 && d7_.pct < 95) limitHit_ = false;  // the window reset
 }
 
 View Model::view(uint32_t nowMs, const LocalTime &t) const {
-    View v{Screen::Clock, nullptr, isNight(t), BRIGHT_DAY};
+    View v{Screen::Clock, nullptr, isNight(t, nightFrom_, nightTo_), brightDay_};
     const ClaudeSession *perm = nullptr, *work = nullptr, *turn = nullptr, *err = nullptr;
     size_t working = 0;
     for (const auto &s : sessions_) {
@@ -204,14 +219,14 @@ View Model::view(uint32_t nowMs, const LocalTime &t) const {
     else {
         // awake (idle scenes) until an hour of quiet by day, half an hour in the evening
         bool away = nowMs - lastEventMs_ > (t.hour >= EVENING_FROM_H ? EVENING_SLEEP_MS : AWAY_SLEEP_MS);
-        bool limitHit = hasLimits_ && !limitsStale(nowMs) && (h5_.pct >= 100 || d7_.pct >= 100);
+        bool limitHit = limitHit_ || (hasLimits_ && !limitsStale(nowMs) && (h5_.pct >= 100 || d7_.pct >= 100));
         if (!t.synced) pick(Screen::Boot, nullptr);  // booting / connecting: no time yet
         else if (v.night && !alert_) pick(Screen::Sleep, nullptr);
         else if (limitHit) pick(Screen::LimitReached, nullptr);
         else if (away && !alert_) pick(Screen::Sleep, nullptr);
         else pick(Screen::Clock, nullptr);
     }
-    v.brightness = (v.night || v.screen == Screen::Sleep) ? BRIGHT_NIGHT : BRIGHT_DAY;
+    v.brightness = (v.night || v.screen == Screen::Sleep) ? brightNight_ : brightDay_;
     return v;
 }
 

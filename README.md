@@ -20,7 +20,8 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 ## What it shows
 
 - **What Claude is doing right now**: Bash, editing, reading, searching, sub-agents, a permission request,
-  an error or done. It also shows the file or command and the project.
+  an error or done. It also shows the file or command and the project, and how full the session's **context** is
+  (amber from 80 %, "compact soon" from 90 %). A permission request left alone for 5 minutes starts to pulse.
 - **Several sessions at once**, from one or more computers.
 - **Usage limits**: two vertical gauges (5 h and 7 d). From 70% up, each gauge also shows the time until reset
   and a pace mark.
@@ -28,7 +29,13 @@ https://github.com/user-attachments/assets/70d152fb-0dde-48c6-8b8d-6f2c64f66179
 - **Optional info line** under the mascot, changing every 5 s: the **weather** (your own free OpenWeather key, with an icon)
   and **today with Claude**: how long Claude worked, how many answers and commits. With your calendar connected, the
   **next meeting** joins in; 10 minutes before it the line turns blue and stays. For Ukraine, an **air-raid alert** for your region takes over
-  the line in red and wakes the clock (dimmed) at night. Each one can be switched off.
+  the line in red and wakes the clock (dimmed) at night. Each one can be switched off. The weather line says when
+  rain or snow is coming ("rain at 18:00"), and on Mondays the line sums up **last week with Claude**.
+- **Your own messages**: `claude-clock say "Build done"` puts a green card on the clock, handy at the end of a script.
+- **Settings page** on the clock itself: open the address from `claude-clock status` in a browser on the same network.
+  Language, clock face (classic, minimal, pixel, segment, flip, terminal, binary), brightness, sleep hours, weather,
+  alerts, and the animations: star your favourites and play only them, switch off groups (holidays, events…), choose
+  how lively the mascot is, play one now or keep one playing for minutes, hours or always, or reset it all.
 - **Mascot animations**: daily scenes, weather and time-of-day events, holidays, rare surprises,
   and a Santa hat from Dec 25 to Jan 7.
 
@@ -99,6 +106,12 @@ To add another computer, run the same line there. Each computer gets its own cod
 | `claude-clock config --calendar-email you@work.com` | Hide meetings you declined |
 | `claude-clock config --calendar-titles off` | Show "Meeting" instead of meeting titles |
 | `claude-clock config --alerts "м. Київ"` | Air-raid alerts (Ukraine) for a region; `list` shows all regions, `off` switches alerts off |
+| `claude-clock config --night 23-7` | Sleep hours of the night screen (`off`: never sleep) |
+| `claude-clock config --brightness 80/20` | Brightness by day / at night, % |
+| `claude-clock config --face pixel` | Clock face: `classic`, `minimal`, `pixel`, `segment`, `flip`, `terminal` or `binary` |
+| `claude-clock config --alerts-token <token>` | Alert levels from [alerts.in.ua](https://alerts.in.ua/api-request): drones or missiles, threat (yellow level), alert in part of the region. Shown while Claude Code runs on this computer (the service needs HTTPS, which the clock can't do); `off` to remove |
+| `claude-clock scene list` | All animations; `scene guitar --for 2h` (or `--for always`) keeps one playing, `scene guitar --once` plays it now, `scene off` goes back to random |
+| `claude-clock say "Build done" "api · 4 min" --for 5m` | A message on the clock (`say off` removes it) |
 | `claude-clock setup` | Pair again (new clock, new IP, new computer) |
 | `claude-clock uninstall` | Remove the hooks and restore your own statusline |
 
@@ -117,6 +130,13 @@ If the clock cannot reach its network for about 2–3 minutes, it shows the QR c
   router settings avoids this.
 - **The time is wrong.** Run `claude-clock config --tz auto`.
 - **The clock is stuck on "Connecting".** Wait about 3 minutes. It will open the Wi-Fi setup by itself.
+- **A grey "?" after the date.** The alert source has not answered for over 5 minutes, so the clock can't tell
+  whether there is an alert. Follow official sources until it is gone.
+- **A grey "safe" after the date.** The clock restarted three times in a row after a crash, so it stopped fetching
+  weather and alerts. Unplug it for a few seconds, or run `claude-clock update`. `claude-clock status` shows the
+  details on its "Health" line.
+- **The network blocks internet time (NTP).** The clock takes the time from your computer with the first Claude Code
+  event.
 
 ## Privacy and security
 

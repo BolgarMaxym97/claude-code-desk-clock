@@ -1,6 +1,7 @@
 // Stage 2 info: weather (OpenWeather), air-raid alert (ubilling / alerts.in.ua), tokens today, the info card.
 #include <unity.h>
 #include "info.h"
+#include "settings.h"
 #include "i18n.h"
 
 void setUp() { setLang(Lang::En); }
@@ -95,6 +96,29 @@ void test_weather_details_icon_and_night() {
     TEST_ASSERT_EQUAL(int(InfoIcon::Fog), int(weatherIcon(WeatherNow{741, 0, 1, 0, false})));
 }
 
+void test_rain_forecast_replaces_the_detail_line() {
+    setLang(Lang::Uk);
+    TEST_ASSERT_EQUAL(int(Weather::Unknown), int(precipOf(803)));
+    TEST_ASSERT_EQUAL(int(Weather::Rain), int(precipOf(501)));
+    TEST_ASSERT_EQUAL(int(Weather::Snow), int(precipOf(600)));
+    TEST_ASSERT_EQUAL(int(Weather::Storm), int(precipOf(211)));
+    Info in;
+    in.onWeather(WeatherNow{803, 3, 2, 1, false}, 0);
+    const uint32_t E = 1764000000;
+    in.onForecast(Weather::Rain, E + 3 * 3600, "18:00", 0);
+    TEST_ASSERT_EQUAL_STRING("відч. +1° · дощ о 18", in.card(0, 1, E).line2.c_str());
+    TEST_ASSERT_EQUAL_STRING("відчув. +1° · 2 м/с", in.card(0, 1, E + 4 * 3600).line2.c_str());  // it already began
+    in.onForecast(Weather::Snow, E + 3600, "15:00", 0);
+    TEST_ASSERT_EQUAL_STRING("відч. +1° · сніг о 15", in.card(0, 1, E).line2.c_str());
+    TEST_ASSERT_EQUAL_STRING("відчув. +1° · 2 м/с", in.card(0, 1, 0).line2.c_str());  // time unknown
+    in.onWeather(WeatherNow{601, 0, 2, -3, false}, 1000);  // snowing now: no "snow at"
+    TEST_ASSERT_EQUAL_STRING("відчув. -3° · 2 м/с", in.card(1000, 1, E).line2.c_str());
+    in.onForecast(Weather::Unknown, 0, "", 2000);           // dry ahead
+    in.onWeather(WeatherNow{803, 3, 2, 1, false}, 2000);
+    TEST_ASSERT_EQUAL_STRING("відчув. +1° · 2 м/с", in.card(2000, 1, E).line2.c_str());
+    setLang(Lang::En);
+}
+
 void test_today_counts_busy_time_answers_and_commits() {
     Info in;
     TEST_ASSERT_TRUE(in.card(0, DAY).line1.empty());  // nothing yet: no card
@@ -146,6 +170,66 @@ void test_card_rotates_with_dots() {
     TEST_ASSERT_EQUAL(0, in.card(1000, DAY).tone);
 }
 
+void test_week_log_keeps_8_days_and_sums_last_week() {
+    TEST_ASSERT_EQUAL(20418, daysFromCivil(2025, 11, 26));
+    TEST_ASSERT_EQUAL(0, daysFromCivil(1970, 1, 1));
+    WeekLog w;
+    const int32_t MON = daysFromCivil(2026, 11, 30);  // a Monday
+    for (int i = 7; i >= 1; i--) w.set(MON - i, 3600000u, 10, 2);  // Mon..Sun: 1 h, 10 answers, 2 commits a day
+    w.set(MON - 8, 999999999u, 999, 99);                        // older than the log: ignored
+    w.set(MON, 60000u, 1, 0);                                   // today does not count
+    WeekLog::Sum s = w.lastWeek(MON);
+    TEST_ASSERT_EQUAL(7 * 60, int(s.busyMin));
+    TEST_ASSERT_EQUAL(70, s.answers);
+    TEST_ASSERT_EQUAL(14, s.commits);
+    WeekLog back;
+    TEST_ASSERT_TRUE(back.decode(w.encode()));
+    TEST_ASSERT_TRUE(validWeek(w.encode()));
+    TEST_ASSERT_EQUAL(70, back.lastWeek(MON).answers);
+    w.set(MON + 20, 0, 0, 0);                                   // long gap: old days drop out
+    TEST_ASSERT_EQUAL(0, w.lastWeek(MON + 20).answers);
+    TEST_ASSERT_FALSE(back.decode("x"));
+    WeekLog bad;  // a date far in the future was saved once (a clock glitch): the log starts again from today
+    bad.set(MON + 3000, 3600000u, 50, 5);
+    bad.set(MON - 1, 3600000u, 10, 2);
+    TEST_ASSERT_EQUAL(10, bad.lastWeek(MON).answers);
+}
+
+void test_monday_card_shows_last_week() {
+    Info in;
+    const int32_t MON = daysFromCivil(2026, 11, 30);
+    for (int i = 7; i >= 1; i--) in.week().set(MON - i, 3 * 3600000u, 20, 4);
+    in.setDay(MON, 1);
+    in.onAnswer(DAY);
+    Info::Card c = in.card(1000, DAY);
+    TEST_ASSERT_EQUAL(2, c.items);                       // today + last week
+    c = in.card(6000, DAY);
+    TEST_ASSERT_EQUAL_STRING("Week 21h", c.line1.c_str());
+    TEST_ASSERT_EQUAL_STRING("140 ans. · 28 commits", c.line2.c_str());
+    in.setDay(MON + 1, 2);                                // Tuesday: gone
+    TEST_ASSERT_EQUAL(1, in.card(6000, DAY).items);
+}
+
+void test_message_takes_the_card_for_a_while() {
+    Info in;
+    in.onWeather(WeatherNow{803, 3, 5, 1, false}, 0);
+    in.onMessage("Build done", "api · 4m 12s", 1000, 60000);
+    Info::Card c = in.card(2000, DAY);
+    TEST_ASSERT_EQUAL_STRING("Build done", c.line1.c_str());
+    TEST_ASSERT_EQUAL_STRING("api · 4m 12s", c.line2.c_str());
+    TEST_ASSERT_EQUAL(int(InfoIcon::Message), int(c.icon));
+    TEST_ASSERT_EQUAL(4, c.tone);              // green: pinned, no rotation dots
+    TEST_ASSERT_EQUAL(0, c.items);
+    TEST_ASSERT_EQUAL_STRING("+3° cloudy", in.card(61001, DAY).line1.c_str());  // time is up
+    in.onMessage("Again", "", 70000, 60000);
+    in.onMessage("", "", 71000, 0);            // cleared
+    TEST_ASSERT_EQUAL_STRING("+3° cloudy", in.card(72000, DAY).line1.c_str());
+    in.setRegion("x");
+    in.onMessage("Hi", "", 80000, 60000);
+    in.onAlert(true, 80000);
+    TEST_ASSERT_EQUAL(2, in.card(81000, DAY).tone);  // an alert wins over a message
+}
+
 void test_alert_takes_the_card_and_counts_minutes() {
     Info in;
     in.setRegion("м. Київ");
@@ -195,10 +279,41 @@ void test_alert_level_from_the_mac_overrides_for_3_min() {
     TEST_ASSERT_EQUAL(int(AlertLevel::None), int(in.alert(8 * MIN)));
 }
 
+void test_threat_and_partial_levels() {
+    setLang(Lang::Uk);
+    Info in;
+    in.setRegion("м. Київ");
+    in.onAlertLevel(AlertLevel::Threat, 0);  // yellow: a possible alert, not an alert
+    TEST_ASSERT_FALSE(isAlert(in.alert(MIN)));
+    Info::Card c = in.card(MIN, DAY);
+    TEST_ASSERT_EQUAL_STRING("Загроза", c.line1.c_str());
+    TEST_ASSERT_EQUAL(5, c.tone);
+    TEST_ASSERT_FALSE(in.alertEnded(MIN));
+    in.onAlertLevel(AlertLevel::Partial, 2 * MIN);  // some hromadas of the oblast
+    TEST_ASSERT_TRUE(isAlert(in.alert(2 * MIN)));
+    c = in.card(4 * MIN, DAY);
+    TEST_ASSERT_EQUAL_STRING("Частково 2хв", c.line1.c_str());
+    TEST_ASSERT_EQUAL(6, c.tone);
+    setLang(Lang::En);
+}
+
 void test_stale_alert_source_is_not_an_alert() {
     Info in;
     in.onAlert(true, 0);
     TEST_ASSERT_EQUAL(int(AlertLevel::None), int(in.alert(6 * MIN)));  // no fresh answer for 5 min
+}
+
+void test_alerts_unknown_when_the_source_is_silent() {
+    Info in;
+    TEST_ASSERT_FALSE(in.alertsUnknown(10 * MIN));  // no region: alerts are off, nothing to warn about
+    in.setRegion("x");
+    TEST_ASSERT_FALSE(in.alertsUnknown(2 * MIN));   // just booted: give the first fetches time
+    TEST_ASSERT_TRUE(in.alertsUnknown(6 * MIN));    // 5 min after boot still no answer
+    in.onAlert(false, 6 * MIN);
+    TEST_ASSERT_FALSE(in.alertsUnknown(7 * MIN));
+    TEST_ASSERT_TRUE(in.alertsUnknown(12 * MIN));   // answers stopped for over 5 min
+    in.onAlertLevel(AlertLevel::None, 12 * MIN);    // the Mac's source still answers
+    TEST_ASSERT_FALSE(in.alertsUnknown(13 * MIN));
 }
 
 void test_today_survives_a_restart_through_a_snapshot() {
@@ -268,6 +383,27 @@ void test_alert_wins_over_a_meeting() {
     TEST_ASSERT_FALSE(in.inMeeting(E0 + 60));
 }
 
+void test_alert_duration_from_the_source_survives_a_restart() {
+    std::string changed;
+    TEST_ASSERT_EQUAL(1, parseAlertTail("{\"alertnow\":true,\"changed\":\"2026-11-26 13:12:47\"}", &changed));
+    TEST_ASSERT_EQUAL_STRING("2026-11-26 13:12:47", changed.c_str());
+    int y, mo, d, h, mi, se;
+    TEST_ASSERT_TRUE(parseStamp(changed, y, mo, d, h, mi, se));
+    TEST_ASSERT_EQUAL(2026, y);
+    TEST_ASSERT_EQUAL(13, h);
+    TEST_ASSERT_EQUAL(47, se);
+    TEST_ASSERT_FALSE(parseStamp("2022", y, mo, d, h, mi, se));
+    Info in;  // just restarted: millis() is small, the alert began 95 min ago by the source
+    in.onAlert(true, 1000, E0 - 95 * 60);
+    TEST_ASSERT_EQUAL_STRING("Air raid alert 1:35", in.card(2000, DAY, E0).line1.c_str());
+    TEST_ASSERT_EQUAL_STRING("Air raid alert 0m", in.card(2000, DAY, 0).line1.c_str());  // no clock yet: own count
+    Info old;  // an alert that has been on for years (occupied regions): shown in days
+    old.onAlert(true, 1000, E0 - 3 * 86400 - 3600);
+    TEST_ASSERT_EQUAL_STRING("Air raid alert 3d", old.card(2000, DAY, E0).line1.c_str());
+    in.onAlert(true, 2000, E0 + 600);  // a start time in the future (clock skew): ignored
+    TEST_ASSERT_EQUAL_STRING("Air raid alert 1:35", in.card(2000, DAY, E0).line1.c_str());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_owm_parses_id_temp_wind);
@@ -277,15 +413,22 @@ int main() {
     RUN_TEST(test_json_key_escapes_like_the_api);
     RUN_TEST(test_alerts_by_region);
     RUN_TEST(test_weather_details_icon_and_night);
+    RUN_TEST(test_rain_forecast_replaces_the_detail_line);
     RUN_TEST(test_today_counts_busy_time_answers_and_commits);
     RUN_TEST(test_busy_gap_after_a_pause_is_not_counted);
     RUN_TEST(test_card_rotates_with_dots);
+    RUN_TEST(test_message_takes_the_card_for_a_while);
+    RUN_TEST(test_week_log_keeps_8_days_and_sums_last_week);
+    RUN_TEST(test_monday_card_shows_last_week);
     RUN_TEST(test_today_survives_a_restart_through_a_snapshot);
     RUN_TEST(test_meeting_in_rotation_then_pinned_blue_then_now);
     RUN_TEST(test_alert_wins_over_a_meeting);
+    RUN_TEST(test_alert_duration_from_the_source_survives_a_restart);
     RUN_TEST(test_alert_takes_the_card_and_counts_minutes);
     RUN_TEST(test_alert_end_feeds_the_all_clear_scene_for_10_min);
     RUN_TEST(test_alert_level_from_the_mac_overrides_for_3_min);
+    RUN_TEST(test_threat_and_partial_levels);
     RUN_TEST(test_stale_alert_source_is_not_an_alert);
+    RUN_TEST(test_alerts_unknown_when_the_source_is_silent);
     return UNITY_END();
 }

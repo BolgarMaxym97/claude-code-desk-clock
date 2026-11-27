@@ -57,6 +57,10 @@ func main() {
 		err = update(args)
 	case "config":
 		err = config(args)
+	case "scene":
+		err = scene(args)
+	case "say":
+		err = say(args)
 	case "uninstall":
 		err = uninstall(args)
 	case "version", "--version", "-v":
@@ -82,6 +86,10 @@ func usage() {
   claude-clock config --lang en|uk | --tz auto|<IANA name> | --birthday MM-DD|off
   claude-clock config --weather-key <key>|off | --city <name>|<lat,lon> | --alerts <region>|list|off
   claude-clock config --calendar <secret iCal address>|off | --calendar-email <you@work>|off | --calendar-titles on|off
+  claude-clock config --alerts-token <alerts.in.ua token>|off   alert levels: drones / missiles, threat, partial
+  claude-clock config --night 23-7|off | --brightness 80/20 | --face classic|minimal|pixel|segment|flip|terminal|binary
+  claude-clock scene list | <name> [--for 30m|2h|always] | <name> --once | off   pick the clock animation
+  claude-clock say "Build done" ["detail"] [--for 2m] | off   a message on the clock (scripts, long builds)
   claude-clock uninstall [--yes]                   remove hooks, restore your statusline
 `)
 }
@@ -106,6 +114,7 @@ func hook() {
 	job, _ := json.Marshal(sendJob{Path: "/api/event", Event: &e, Cwd: h.Cwd})
 	spawnSend(job)
 	maybeCalendar(c)
+	maybeAlerts(c)
 }
 
 func statusline() {
@@ -119,13 +128,28 @@ func statusline() {
 	defer func() { recover() }()
 	if c, err := cfg.Load(); err == nil && c.URL != "" && !recentlyDown() {
 		maybeCalendar(c)
+		maybeAlerts(c)
 	}
 	body, ok := event.Limits(in)
-	if !ok || recentlyDown() || !throttle("limits.stamp", limitsEvery) {
+	// per session: each session's context reaches the clock, not only the busiest one's
+	if !ok || recentlyDown() || !throttle("limits-"+stampID(in)+".stamp", limitsEvery) {
 		return
 	}
 	job, _ := json.Marshal(sendJob{Path: "/api/limits", Body: body})
 	spawnSend(job)
+	if throttle("prune.stamp", time.Hour) {
+		pruneStamps(24 * time.Hour)
+	}
+}
+
+// pruneStamps removes per-session throttle files of sessions that ended long ago.
+func pruneStamps(older time.Duration) {
+	files, _ := filepath.Glob(cfg.File("limits-*.stamp"))
+	for _, f := range files {
+		if st, err := os.Stat(f); err == nil && time.Since(st.ModTime()) > older {
+			os.Remove(f)
+		}
+	}
 }
 
 type sendJob struct {
@@ -166,11 +190,16 @@ func send(_ []string) {
 		syncCalendar(c, 5*time.Second)
 		return
 	}
+	if job.Path == "alerts" {
+		syncAlerts(c)
+		return
+	}
 	body := []byte(job.Body)
 	if job.Event != nil {
 		if job.Cwd != "" && event.WantsBranch(job.Event.Event) {
 			job.Event.Branch = gitBranch(job.Cwd)
 		}
+		job.Event.Now = time.Now().Unix() // when sent, not when the hook ran
 		body, _ = json.Marshal(job.Event)
 	}
 	if clock.Post(c.URL, c.Token, job.Path, body, sendTimeout) == nil {
@@ -461,9 +490,15 @@ func status() error {
 	fmt.Printf("Clock      %s\nFirmware   %s\nShows      %s  %s\nSessions   %d\nWi-Fi      %s\nTimezone   %s\n",
 		c.URL, st.FW, st.Screen, st.Time, st.Sessions, st.SSID, st.TZ)
 	if st.Weather != "" {
-		fmt.Printf("Weather    %s\nAlerts     %s (now: %s)\n", st.Weather, st.Alerts, st.Alert)
+		fmt.Printf("Weather    %s\nAlerts     %s (now: %s)\nLevels     %s\n", st.Weather, st.Alerts, st.Alert, alertsStatus())
 	}
 	fmt.Printf("Calendar   %s\n", calendarStatus(c))
+	fmt.Printf("Health     %s\n", health(st))
+	fmt.Printf("Settings   %s/  (open in a browser on this network)\n", strings.TrimRight(c.URL, "/"))
+	if st.Safe {
+		fmt.Println("SAFE MODE  the clock restarted 3 times in a row after a crash: no weather / alerts, settings read-only.\n" +
+			"           Unplug it for a few seconds, or run `claude-clock update`.")
+	}
 	fmt.Printf("This tool  %s\n", version)
 	return nil
 }
@@ -547,7 +582,8 @@ func config(args []string) error {
 	for _, f := range []struct {
 		name string
 		set  func(*cfg.Config, string) error
-	}{{"--calendar", setCalendar}, {"--calendar-email", setCalendarEmail}, {"--calendar-titles", setCalendarTitles}} {
+	}{{"--calendar", setCalendar}, {"--calendar-email", setCalendarEmail}, {"--calendar-titles", setCalendarTitles},
+		{"--alerts-token", setAlertsToken}} {
 		if v, ok := flag(args, f.name); ok {
 			if err := f.set(&c, v); err != nil {
 				return err
@@ -555,8 +591,82 @@ func config(args []string) error {
 			done = true
 		}
 	}
-	if !done {
+	more, err := configPrefs(c, args)
+	if err != nil {
+		return err
+	}
+	if !done && !more {
 		usage()
 	}
 	return nil
+}
+
+// health is one line about the clock itself: Wi-Fi signal, uptime, free memory, last restart, data sources.
+func health(st clock.Status) string {
+	sig := "good"
+	switch {
+	case st.RSSI == 0:
+		sig = "?"
+	case st.RSSI < -80:
+		sig = "weak"
+	case st.RSSI < -70:
+		sig = "fair"
+	}
+	up := time.Duration(st.Uptime) * time.Second
+	parts := []string{
+		fmt.Sprintf("Wi-Fi %d dBm (%s)", st.RSSI, sig),
+		"up " + up.Round(time.Minute).String(),
+		fmt.Sprintf("memory %d KB free (lowest %d KB)", st.Heap/1024, st.HeapMin/1024),
+		"last restart: " + strings.ToLower(st.Reset),
+	}
+	if bad := sourceProblem("weather", st.WxCode); bad != "" {
+		parts = append(parts, bad)
+	} else if bad := sourceProblem("forecast", st.FcCode); bad != "" {
+		parts = append(parts, bad)
+	}
+	if st.Alert == "unknown" {
+		parts = append(parts, "alerts: no answer for 5+ min"+codeNote(st.AlCode))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func sourceProblem(name string, code int) string {
+	if code == 0 || code == 200 {
+		return ""
+	}
+	if code == 401 {
+		return name + ": key rejected (401)"
+	}
+	return name + ": failing" + codeNote(code)
+}
+
+func codeNote(code int) string {
+	switch {
+	case code < 0:
+		return " (no connection)"
+	case code > 0 && code != 200:
+		return fmt.Sprintf(" (HTTP %d)", code)
+	}
+	return ""
+}
+
+// stampID is a short, file-name safe id of the statusline's session ("" -> "x").
+func stampID(stdin []byte) string {
+	var h struct {
+		SessionID string `json:"session_id"`
+	}
+	json.Unmarshal(stdin, &h)
+	id := []rune{}
+	for _, r := range h.SessionID {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') {
+			id = append(id, r)
+		}
+		if len(id) == 12 {
+			break
+		}
+	}
+	if len(id) == 0 {
+		return "x"
+	}
+	return string(id)
 }

@@ -19,6 +19,7 @@ type Event struct {
 	Target  string `json:"target"`
 	Branch  string `json:"branch,omitempty"`
 	Kinds   string `json:"kinds,omitempty"` // finished Bash command: "tests,commit,push,install,docker" subset
+	Now     int64  `json:"now,omitempty"`   // this computer's time (Unix): the clock uses it when NTP is blocked
 }
 
 type hookIn struct {
@@ -28,6 +29,8 @@ type hookIn struct {
 	ToolName         string         `json:"tool_name"`
 	NotificationType string         `json:"notification_type"`
 	Prompt           string         `json:"prompt"`
+	Error            string         `json:"error"`      // StopFailure (newer Claude Code)
+	ErrorType        string         `json:"error_type"` // StopFailure (some versions)
 	ToolInput        map[string]any `json:"tool_input"`
 }
 
@@ -52,9 +55,17 @@ func FromHook(stdin []byte, projectDir string) (Event, bool) {
 			e.Kind = "permission"
 		case "idle_prompt":
 			e.Kind = "idle"
+		case "elicitation_dialog": // an MCP server asks the user something: Claude waits like on a permission
+			e.Kind = "permission"
 		}
 	}
+	if h.HookEventName == "StopFailure" && (h.Error == "rate_limit" || h.ErrorType == "rate_limit") {
+		e.Kind = "limit" // usage limit reached: the clock shows the limit screen, not an error
+	}
 	e.Target = cut(strings.NewReplacer("\n", " ", "\t", " ", "\r", " ").Replace(target(h)), targetMax)
+	if strings.HasPrefix(h.ToolName, "mcp__") {
+		e.Target = cut(mcpServer(h.ToolName), targetMax) // the server, never its input (task texts, queries)
+	}
 	if h.ToolName == "Bash" && (h.HookEventName == "PostToolUse" || h.HookEventName == "PostToolUseFailure") {
 		if cmd, _ := h.ToolInput["command"].(string); cmd != "" {
 			e.Kinds = strings.Join(BashKinds(cmd), ",")
@@ -120,32 +131,62 @@ type window struct {
 // Limits builds the /api/limits body from the statusline JSON; false when Claude sent no rate limits.
 func Limits(stdin []byte) ([]byte, bool) {
 	var in struct {
+		SessionID  string `json:"session_id"`
 		RateLimits struct {
 			FiveHour window `json:"five_hour"`
 			SevenDay window `json:"seven_day"`
 		} `json:"rate_limits"`
+		Context struct {
+			UsedPercentage *float64 `json:"used_percentage"`
+		} `json:"context_window"`
 	}
 	if json.Unmarshal(stdin, &in) != nil {
-		return nil, false
-	}
-	r := in.RateLimits
-	if r.FiveHour.UsedPercentage == nil && r.SevenDay.UsedPercentage == nil {
 		return nil, false
 	}
 	type w struct {
 		Pct      int   `json:"pct"`
 		ResetsAt int64 `json:"resets_at"`
 	}
-	conv := func(x window) w {
+	type ctx struct {
+		Session string `json:"session"`
+		Pct     int    `json:"pct"`
+	}
+	var out struct {
+		H5  *w   `json:"h5,omitempty"`
+		D7  *w   `json:"d7,omitempty"`
+		Ctx *ctx `json:"ctx,omitempty"`
+	}
+	conv := func(x window) *w {
 		p := 0.0
 		if x.UsedPercentage != nil {
 			p = *x.UsedPercentage
 		}
-		return w{int(math.Round(p)), x.ResetsAt}
+		return &w{int(math.Round(p)), x.ResetsAt}
 	}
-	b, _ := json.Marshal(struct {
-		H5 w `json:"h5"`
-		D7 w `json:"d7"`
-	}{conv(r.FiveHour), conv(r.SevenDay)})
+	r := in.RateLimits
+	if r.FiveHour.UsedPercentage != nil || r.SevenDay.UsedPercentage != nil {
+		out.H5, out.D7 = conv(r.FiveHour), conv(r.SevenDay)
+	}
+	if p := in.Context.UsedPercentage; p != nil && in.SessionID != "" {
+		out.Ctx = &ctx{in.SessionID, int(math.Round(*p))}
+	}
+	if out.H5 == nil && out.Ctx == nil {
+		return nil, false
+	}
+	b, _ := json.Marshal(out)
 	return b, true
+}
+
+// mcpServer: "mcp__claude_ai_Google_Drive__search_files" -> "Google Drive", "mcp__plugin_figma_figma__x" -> "figma".
+func mcpServer(tool string) string {
+	rest := strings.TrimPrefix(tool, "mcp__")
+	if i := strings.Index(rest, "__"); i >= 0 {
+		rest = rest[:i]
+	}
+	rest = strings.TrimPrefix(rest, "claude_ai_")
+	if strings.HasPrefix(rest, "plugin_") { // plugin_<plugin>_<server>
+		parts := strings.SplitN(strings.TrimPrefix(rest, "plugin_"), "_", 2)
+		rest = parts[len(parts)-1]
+	}
+	return strings.ReplaceAll(rest, "_", " ")
 }

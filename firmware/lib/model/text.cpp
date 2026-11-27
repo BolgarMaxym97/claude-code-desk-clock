@@ -6,7 +6,8 @@ const char *verbFor(const std::string &tool) {
     if (tool == "Edit" || tool == "Write" || tool == "MultiEdit" || tool == "NotebookEdit") return tr(T_V_EDIT);
     if (tool == "Read" || tool == "Grep" || tool == "Glob") return tr(T_V_READ);
     if (tool == "Task" || tool == "Agent") return tr(T_V_DELEGATE);
-    if (tool == "WebSearch" || tool == "WebFetch" || tool.rfind("mcp__", 0) == 0) return tr(T_V_SEARCH);
+    if (tool.rfind("mcp__", 0) == 0) return tr(T_V_CALL);  // an MCP server: create, update, search... (name below)
+    if (tool == "WebSearch" || tool == "WebFetch") return tr(T_V_SEARCH);
     return tr(T_V_WORK);
 }
 

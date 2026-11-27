@@ -7,3 +7,7 @@
 Info &infoState();
 void fetchTick(uint32_t now);   // one request at a time, only with Wi-Fi up and the source configured
 void fetchSoon();               // settings changed: fetch again right away
+
+// Last HTTP result of each source (diagnostics in /status): 0 never asked, -1 no connection, else the HTTP status.
+struct FetchDiag { int wxCode = 0, alertCode = 0, fcCode = 0; };
+const FetchDiag &fetchDiag();

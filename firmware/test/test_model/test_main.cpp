@@ -168,6 +168,25 @@ void test_thinking_and_compacting_are_working() {
     TEST_ASSERT_EQUAL(int(Screen::Working), int(m.view(2000, day()).screen));
 }
 
+void test_usage_limit_shows_the_limit_screen_not_an_error() {
+    Model m;
+    TEST_ASSERT_EQUAL(int(Ev::LimitHit), int(parseEvent("StopFailure", "limit")));
+    TEST_ASSERT_EQUAL(int(Ev::StopFailure), int(parseEvent("StopFailure", "")));
+    m.onLimits(98, 1000, 27, 2000, 0);  // statusline lags: 98 %, not 100
+    m.onEvent(ev("a", Ev::UserPromptSubmit), 1000);
+    m.onEvent(ev("a", Ev::LimitHit), 2000);
+    TEST_ASSERT_EQUAL(int(SState::Idle), int(m.find("a")->state));
+    TEST_ASSERT_EQUAL(int(Screen::LimitReached), int(m.view(3000, day()).screen));
+    TEST_ASSERT_EQUAL(98, m.limitShown().pct);  // the window that ran out: the fuller one
+    m.onEvent(ev("a", Ev::PreToolUse, "Bash", "ls"), 4000);  // Claude works again
+    TEST_ASSERT_EQUAL(int(Screen::Working), int(m.view(5000, day()).screen));
+    m.onEvent(ev("a", Ev::Stop), 6000);
+    TEST_ASSERT_EQUAL(int(Screen::Clock), int(m.view(6000 + 7000, day()).screen));
+    m.onEvent(ev("a", Ev::LimitHit), 20000);
+    m.onLimits(3, 9000, 28, 2000, 21000);  // the 5h window reset: the limit screen goes away
+    TEST_ASSERT_EQUAL(int(Screen::Clock), int(m.view(22000, day()).screen));
+}
+
 void test_idle_notification_is_ignored_and_error_shows() {
     Model m;
     m.onEvent(ev("a", Ev::UserPromptSubmit), 0);
@@ -383,6 +402,48 @@ void test_limits_clamped_and_stale() {
     TEST_ASSERT_TRUE(m.limitsStale(10 * MIN + 1));
 }
 
+void test_night_hours_and_brightness_from_prefs() {
+    LocalTime t{true, 23, 30, 11, 26, 3};
+    TEST_ASSERT_TRUE(isNight(t));                 // default 23-7
+    TEST_ASSERT_FALSE(isNight(t, 0, 0));          // "off"
+    TEST_ASSERT_FALSE(isNight(t, 0, 6));
+    t.hour = 3;
+    TEST_ASSERT_TRUE(isNight(t, 0, 6));
+    Model m;
+    m.setNight(0, 0);
+    m.setBrightness(60, 10);
+    View v = m.view(1000, LocalTime{true, 23, 30, 11, 26, 3});
+    TEST_ASSERT_FALSE(v.night);
+    TEST_ASSERT_EQUAL(60, v.brightness);
+    m.setNight(22, 6);
+    v = m.view(1000, LocalTime{true, 23, 30, 11, 26, 3});
+    TEST_ASSERT_TRUE(v.night);
+    TEST_ASSERT_EQUAL(10, v.brightness);
+}
+
+void test_host_time_only_when_the_clock_has_none() {
+    TEST_ASSERT_TRUE(takeHostTime(5, 1764000000));
+    TEST_ASSERT_FALSE(takeHostTime(1764000000, 1764000100));  // NTP time already there
+    TEST_ASSERT_FALSE(takeHostTime(5, 0));                    // old claude-clock: no time sent
+    TEST_ASSERT_FALSE(takeHostTime(5, 12345));
+}
+
+void test_context_of_a_session() {
+    Model m;
+    m.onEvent(ev("s1", Ev::UserPromptSubmit, "", "x"), 1000);
+    TEST_ASSERT_EQUAL(-1, m.find("s1")->ctx);       // unknown until the statusline says
+    m.onContext("s1", 72);
+    m.onContext("nope", 50);                         // a session the clock doesn't know: ignored
+    TEST_ASSERT_EQUAL(72, m.find("s1")->ctx);
+    m.onContext("s1", 130);
+    TEST_ASSERT_EQUAL(100, m.find("s1")->ctx);
+    m.onEvent(ev("s1", Ev::PreCompact), 2000);       // compacting: the old number is wrong now
+    TEST_ASSERT_EQUAL(-1, m.find("s1")->ctx);
+    TEST_ASSERT_EQUAL(0, contextLevel(79));
+    TEST_ASSERT_EQUAL(1, contextLevel(80));
+    TEST_ASSERT_EQUAL(2, contextLevel(90));
+}
+
 // ---- Task 4 (MVP part): verbs, hat, sprites ----
 void test_verb_for_tool() {
     setLang(Lang::Uk);  // Ukrainian texts (English is covered in test_i18n)
@@ -398,7 +459,7 @@ void test_verb_for_tool() {
     TEST_ASSERT_EQUAL_STRING("Делегує", verbFor("Agent"));
     TEST_ASSERT_EQUAL_STRING("Шукає", verbFor("WebSearch"));
     TEST_ASSERT_EQUAL_STRING("Шукає", verbFor("WebFetch"));
-    TEST_ASSERT_EQUAL_STRING("Шукає", verbFor("mcp__clickup__search"));
+    TEST_ASSERT_EQUAL_STRING("Викликає", verbFor("mcp__clickup__clickup_create_task"));  // MCP: any action, not a search
     TEST_ASSERT_EQUAL_STRING("Працює", verbFor("SomethingNew"));
     TEST_ASSERT_EQUAL_STRING("Працює", verbFor(""));
 }
@@ -512,6 +573,7 @@ int main() {
     RUN_TEST(test_two_working_is_multi_one_is_working);
     RUN_TEST(test_thinking_and_compacting_are_working);
     RUN_TEST(test_idle_notification_is_ignored_and_error_shows);
+    RUN_TEST(test_usage_limit_shows_the_limit_screen_not_an_error);
     RUN_TEST(test_done_for_6s_then_clock);
     RUN_TEST(test_hello_for_3s);
     RUN_TEST(test_day_stays_awake_until_an_hour_without_mac);
@@ -537,6 +599,9 @@ int main() {
     RUN_TEST(test_expired_sessions_do_not_show_mac_silent);
     RUN_TEST(test_quiet_night_is_sleep);
     RUN_TEST(test_limits_clamped_and_stale);
+    RUN_TEST(test_context_of_a_session);
+    RUN_TEST(test_host_time_only_when_the_clock_has_none);
+    RUN_TEST(test_night_hours_and_brightness_from_prefs);
     RUN_TEST(test_verb_for_tool);
     RUN_TEST(test_hat_season);
     RUN_TEST(test_sprites_are_14_wide);

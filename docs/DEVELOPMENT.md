@@ -29,12 +29,18 @@ a static IP, a fixed token or a birthday for your own clock. Release builds have
 
 | Method & path | Auth | Purpose |
 |---|---|---|
-| `GET /status` | — | Firmware, IP, screen, sessions, limits, Wi-Fi, timezone (JSON) |
+| `GET /status` | — | Firmware, IP, screen, sessions, limits, Wi-Fi, timezone, health (`heap`, `heapmin`, `maxblock`, `reset`, `safe`, `rssi`, `wx_code`, `fc_code`, `alert_code`) (JSON) |
 | `POST /api/pair/start` | — | Show a 6-character code on the screen for 5 minutes |
 | `POST /api/pair` `{"code"}` | the code | Returns `{"token"}`; 5 wrong codes lock pairing until reboot |
-| `POST /api/event` | token | Claude Code hook event `{session, event, project, tool, kind, target, branch}` |
-| `POST /api/limits` | token | `{h5:{pct,resets_at}, d7:{pct,resets_at}}` |
-| `POST /api/settings` | token | `{"tz": "<POSIX TZ>", "birthday": "MM-DD" \| ""}` |
+| `POST /api/event` | token | Claude Code hook event `{session, event, project, tool, kind, target, branch, now}`; `now` (Unix time of the computer) sets the clock only while it has no time (NTP blocked) |
+| `POST /api/limits` | token | `{h5:{pct,resets_at}, d7:{pct,resets_at}, ctx:{session,pct}}`, every part optional |
+| `POST /api/settings` | token | Any of `tz`, `birthday` (`MM-DD`/`""`), `lang`, `owm`, `loc` (`lat,lon`), `region`, `night` (`23-7`/`off`), `bright` (`80/20`), `face` (`0`..`6`), `pin` (`name,untilEpoch`, `0` = always, `""` = random), `anim` (`fav,groups,freq,hexbits` or `""` for defaults), `atok` (alerts.in.ua token) |
+| `GET /api/settings[?secret=1]` | token | Current settings for the settings page (the weather key only as `owm: true/false`; the alerts token as `atok: true/false`, or its value with `secret=1` for `claude-clock`) |
+| `POST /api/geocode?q=city` | token | City → `{name, loc}` with the clock's OpenWeather key |
+| `GET /api/scenes` | token | Idle animations `[{i, n, t, k}]`: table index (favourite bits), name, title in the clock's language, kind |
+| `POST /api/say` | token | `{text, detail, for}` (seconds, default 120): a green card on the clock; `text: ""` clears it |
+| `POST /api/info` | token | `{meetings:[{t,hm,start,end}]}` from the calendar, `{alert: none\|alert\|drone\|missile\|threat\|partial}` from `claude-clock` (alerts.in.ua), wins over ubilling for 3 min |
+| `GET /` | — | Settings page; a browser pairs with the code from the screen and keeps the token in localStorage |
 | `POST /api/wifi-setup` | token | Open the Wi-Fi setup access point for 10 minutes |
 | `POST /api/preview-scene?name=…` / `?all=1` | token | Play one or all idle animations |
 | `POST /api/preview-newyear[?midnight=1]` | token | Preview the New Year look |

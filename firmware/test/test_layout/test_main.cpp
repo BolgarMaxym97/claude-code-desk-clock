@@ -216,7 +216,7 @@ void test_texts_fit_in_both_languages() {  // every place a translated text is d
     for (Lang l : {Lang::En, Lang::Uk}) {
         setLang(l);
         const int full = 236, centre = 184;  // whole screen; content between the gauges
-        Txt verbs[] = {T_V_RUN, T_V_EDIT, T_V_READ, T_V_DELEGATE, T_V_SEARCH, T_V_WORK, T_V_THINK, T_V_COMPACT,
+        Txt verbs[] = {T_V_RUN, T_V_CALL, T_V_EDIT, T_V_READ, T_V_DELEGATE, T_V_SEARCH, T_V_WORK, T_V_THINK, T_V_COMPACT,
                        T_V_ALLOW, T_V_YOURTURN, T_V_ERROR, T_DONE, T_V_HELLO, T_LIMIT};
         for (Txt t : verbs) TEST_ASSERT_TRUE_MESSAGE(advance(F_H, tr(t)) <= centre - 4, tr(t));
         for (Txt t : {T_WHY_FAIL, T_WHY_PASS, T_WHY_NOSSID, T_WHY_NOIP, T_CONNECTED})
@@ -260,7 +260,14 @@ void test_texts_fit_in_both_languages() {  // every place a translated text is d
         Info in;
         for (int i = 0; i < 288; i++) in.onAnswer(1);
         for (int i = 0; i < 88; i++) in.onCommit(1);
-        std::string l2[] = {weatherDetail(WeatherNow{800, -28, 25, -38, false}), in.card(0, 1).line2};
+        std::string l2[] = {weatherDetail(WeatherNow{800, -28, 25, -38, false}), in.card(0, 1).line2,
+                            // forecast keeps "feels": storms come in the heat, snow in the frost
+                            std::string(tr(T_FEELS_SHORT)) + " +35° · " + tr(T_FC_STORM) + forecastHour(23),
+                            std::string(tr(T_FEELS_SHORT)) + " -25° · " + tr(T_FC_SNOW) + forecastHour(23),
+                            std::string("999 ") + tr(T_ANSWERS) + " · 99 " + tr(T_COMMIT5)};
+        TEST_ASSERT_TRUE(advance(F_S, (std::string(tr(T_LAST_WEEK)) + " 168" + tr(T_HOURS_SHORT)).c_str()) <= lineW);
+        // context line under the work screen: between the reset timers (x 34..206)
+        TEST_ASSERT_TRUE(advance(F_S3, (std::string(tr(T_COMPACT_SOON)) + " 100%").c_str()) <= 206 - 34);
         for (const std::string &w : l2) TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w.c_str()) <= lineW, w.c_str());
         for (std::string w : {resetShort(4 * 3600 + 59 * 60, false), resetShort(59 * 60, true), resetShort(23 * 3600, true)})
             TEST_ASSERT_TRUE_MESSAGE(advance(F_S3, w.c_str()) <= 2 * lay::TIMER_HALF, w.c_str());

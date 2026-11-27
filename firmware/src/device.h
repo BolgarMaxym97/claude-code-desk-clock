@@ -22,6 +22,23 @@ const char *deviceRegion();
 // Today-with-Claude counters in the settings record ("day,busyMs,answers,commits"), written now and then.
 const char *deviceToday();
 void deviceSaveToday(const String &v);
+// Display prefs ("" = default): sleep hours "23-7" / "off", brightness "80/20", clock face "0".."2",
+// pinned idle scene "name,untilEpoch" (0 = always). false: invalid value.
+bool deviceSetNight(const String &v);
+bool deviceSetBright(const String &v);
+bool deviceSetFace(const String &v);
+bool deviceSetPin(const String &v);
+bool deviceSetAnim(const String &v);           // AnimPrefs::encode() text, "" = defaults
+bool deviceSetAlertsToken(const String &v);    // alerts.in.ua token, "" = none
+const char *deviceAnim();
+const char *deviceAlertsToken();
+void deviceNight(int &from, int &to);
+void deviceBright(int &day, int &night);
+int deviceFace();
+const char *devicePin();
+// Week log of today-counters (WeekLog::encode), saved together with today.
+const char *deviceWeek();
+void deviceSaveWeek(const String &v);
 bool deviceSettingsSaved();             // false: kept in RAM only (flash area unusable)
 
 // Pairing: start shows a fresh code on the screen for a few minutes.

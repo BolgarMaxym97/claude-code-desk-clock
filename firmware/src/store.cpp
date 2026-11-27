@@ -56,8 +56,11 @@ static bool writePair(Pair &p, const std::vector<uint8_t> &bytes) {
     uint32_t addr = target == 0 ? p.a : p.b;  // the other sector keeps the previous record
     if (!ESP.flashEraseSector(addr / SEC_SIZE)) return false;
     if (!ESP.flashWrite(addr, reinterpret_cast<const uint32_t *>(bytes.data()), bytes.size())) return false;
-    alignas(4) uint8_t back[SETTINGS_REC_MAX];
-    if (!readBlob(p, addr, back) || memcmp(back, bytes.data(), bytes.size()) != 0) return false;
+    uint32_t back[16];  // read-back in 64-byte chunks: no record-sized buffer on the stack
+    for (size_t off = 0; off < bytes.size(); off += sizeof back) {
+        size_t n = std::min(sizeof back, bytes.size() - off);
+        if (!ESP.flashRead(addr + off, back, sizeof back) || memcmp(back, bytes.data() + off, n) != 0) return false;
+    }
     p.newest = target;
     p.seq++;
     return true;

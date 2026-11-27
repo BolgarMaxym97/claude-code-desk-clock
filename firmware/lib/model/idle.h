@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "sprites.h"
 #include "scene.h"
+#include <string>
 
 constexpr uint32_t IDLE_TICK_MS = 140;  // animation tick on the clock screen
 constexpr int IDLE_MAX_DX = 40;  // walk range left/right of centre (stays in the visible part of the 1.2x stage)
@@ -26,6 +27,22 @@ struct IdlePose {
     bool band;      // wears the sport headband (hide the New Year hat)
 };
 
+// User animation settings ("anim" in the settings record): favourites only, scene groups, how often.
+// Favourites are bits by scene table index: new scenes are only ever appended to the tables.
+struct AnimPrefs {
+    enum : uint8_t { G_DAILY = 1, G_WEEKEND = 2, G_RARE = 4, G_HOLIDAY = 8, G_EVENT = 16, G_ALL = 31 };
+    static constexpr int MAX_FAV = 128;
+    bool favOnly = false;
+    uint8_t groups = G_ALL;  // G_DAILY also covers the classic actions (walk, jump...)
+    uint8_t freq = 1;        // 0 calm, 1 normal, 2 lively
+    uint8_t favBits[MAX_FAV / 8] = {};
+    bool fav(int i) const { return i >= 0 && i < MAX_FAV && (favBits[i / 8] >> (i % 8) & 1); }
+    void setFav(int i, bool on) { if (i >= 0 && i < MAX_FAV) { if (on) favBits[i / 8] |= uint8_t(1 << (i % 8)); else favBits[i / 8] &= uint8_t(~(1 << (i % 8))); } }
+    bool anyFav() const { for (uint8_t b : favBits) if (b) return true; return false; }
+    std::string encode() const;              // "fav,groups,freq,hexbits" (hex trimmed), "" for defaults
+    bool decode(const std::string &s);       // "" -> defaults; false: invalid (prefs unchanged)
+};
+
 class IdleDirector {
   public:
     explicit IdleDirector(uint32_t seed = 1);
@@ -37,6 +54,7 @@ class IdleDirector {
     void setCalendar(bool newYearSeason, bool newYearMidnight) { season_ = newYearSeason; midnight_ = newYearMidnight; }
     // Date / weather / events for scene selection (event scenes play once per 10 min, holidays ~every other action).
     void setContext(const SceneCtx &c) { ctx_ = c; }
+    void setPrefs(const AnimPrefs &p) { prefs_ = p; }
     int sceneIndex() const { return scene_; }
     void playScene(uint32_t t, int i) { startScene(t, i); replays_ = 0; pendingReplay_ = false; }  // preview: once
     uint32_t sceneTick(uint32_t t) const { return t - start_; }
@@ -55,6 +73,7 @@ class IdleDirector {
     int lastMinute_ = -1;
     bool season_ = false, midnight_ = false;
     SceneCtx ctx_;
+    AnimPrefs prefs_;
     int scene_ = -1, prevScene_ = -1;
     bool prevEvent_ = false;
     static constexpr int MAX_SCENES = 100, MAX_EVENTS = 16;

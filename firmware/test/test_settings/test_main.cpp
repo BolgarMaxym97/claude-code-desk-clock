@@ -126,6 +126,14 @@ void test_info_settings_roundtrip_at_max_length() {
     s.owm = "0123456789abcdef0123456789abcdef";
     s.loc = "-33.87,151.21";
     s.region = "Дніпропетровська область";  // the longest ubilling region name
+    s.today = "380,86399999,9999,999";
+    s.night = "23-7";
+    s.bright = "100/100";
+    s.face = "2";
+    s.pin = "abcdefghijklmnopqrstuvwx,4000000000";
+    s.week = "99999:1440,9999,999;1440,9999,999;1440,9999,999;1440,9999,999;1440,9999,999;1440,9999,999;1440,9999,999;1440,9999,999";
+    s.anim = "1,31,2,ffffffffffffffffffffffffffffffff";
+    s.atok = std::string(64, 'x');
     std::vector<uint8_t> b = encodeSettingsRec(3, s);
     TEST_ASSERT_TRUE(b.size() <= SETTINGS_REC_MAX);
     Settings back;
@@ -135,6 +143,36 @@ void test_info_settings_roundtrip_at_max_length() {
     TEST_ASSERT_EQUAL_STRING(s.loc.c_str(), back.loc.c_str());
     TEST_ASSERT_EQUAL_STRING(s.region.c_str(), back.region.c_str());
     TEST_ASSERT_EQUAL_STRING("uk", back.lang.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.week.c_str(), back.week.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.pin.c_str(), back.pin.c_str());
+    TEST_ASSERT_EQUAL_STRING("100/100", back.bright.c_str());
+    TEST_ASSERT_EQUAL_STRING("23-7", back.night.c_str());
+    TEST_ASSERT_EQUAL_STRING("2", back.face.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.anim.c_str(), back.anim.c_str());
+    TEST_ASSERT_EQUAL_STRING(s.atok.c_str(), back.atok.c_str());
+}
+
+void test_display_prefs_parse() {
+    int a, b;
+    TEST_ASSERT_TRUE(parseNight("", a, b)); TEST_ASSERT_EQUAL(23, a); TEST_ASSERT_EQUAL(7, b);  // default
+    TEST_ASSERT_TRUE(parseNight("off", a, b)); TEST_ASSERT_EQUAL(a, b);                          // never sleeps
+    TEST_ASSERT_TRUE(parseNight("0-6", a, b)); TEST_ASSERT_EQUAL(0, a); TEST_ASSERT_EQUAL(6, b);
+    TEST_ASSERT_FALSE(parseNight("24-7", a, b));
+    TEST_ASSERT_FALSE(parseNight("5-5", a, b));
+    TEST_ASSERT_FALSE(parseNight("x", a, b));
+    TEST_ASSERT_TRUE(parseBright("", a, b)); TEST_ASSERT_EQUAL(80, a); TEST_ASSERT_EQUAL(20, b);
+    TEST_ASSERT_TRUE(parseBright("100/5", a, b)); TEST_ASSERT_EQUAL(100, a); TEST_ASSERT_EQUAL(5, b);
+    TEST_ASSERT_FALSE(parseBright("101/5", a, b));
+    TEST_ASSERT_FALSE(parseBright("50/2", a, b));
+    TEST_ASSERT_TRUE(validFace("") && validFace("0") && validFace("6"));
+    TEST_ASSERT_FALSE(validFace("7"));
+    std::string name;
+    uint32_t until;
+    TEST_ASSERT_TRUE(parsePin("", name, until)); TEST_ASSERT_TRUE(name.empty());
+    TEST_ASSERT_TRUE(parsePin("coffee,0", name, until)); TEST_ASSERT_EQUAL_STRING("coffee", name.c_str()); TEST_ASSERT_EQUAL(0, until);
+    TEST_ASSERT_TRUE(parsePin("new-year,1764000000", name, until)); TEST_ASSERT_EQUAL(1764000000u, until);
+    TEST_ASSERT_FALSE(parsePin("Bad Name,0", name, until));
+    TEST_ASSERT_FALSE(parsePin("coffee", name, until));
 }
 
 void test_info_validators() {
@@ -186,6 +224,7 @@ int main() {
     RUN_TEST(test_validators);
     RUN_TEST(test_info_settings_roundtrip_at_max_length);
     RUN_TEST(test_info_validators);
+    RUN_TEST(test_display_prefs_parse);
     RUN_TEST(test_today_counters_in_the_settings_record);
     RUN_TEST(test_token_and_code_generation);
     RUN_TEST(test_pair_window_accepts_the_code_once_in_time);

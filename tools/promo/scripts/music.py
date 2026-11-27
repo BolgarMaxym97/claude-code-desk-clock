@@ -3,7 +3,7 @@
 a small bell motif, vinyl crackle, Schroeder reverb on the keys. Usage: music.py out.wav"""
 import math, random, struct, sys, wave
 
-SR, BPM, DUR = 44100, 84, 28.5
+SR, BPM, DUR = 44100, 84, 40.5  # = promo length (S.end / FPS)
 BEAT = 60 / BPM
 SWING = 0.18 * BEAT  # delay of every off-beat 8th
 N = int(SR * DUR)
@@ -69,9 +69,9 @@ for b in range(int(DUR / bar) + 1):
                 add(dry, t0 + q * BEAT, 0.25, snare, 0.16)
             for e in (0, 1):
                 add(dry, t0 + q * BEAT + e * (BEAT / 2 + SWING), 0.05, hat, 0.035 if e else 0.05)
-# bell motif over bars 2-5 and 6-9
+# bell motif over bars 2-5, 6-9 and 10-13
 MOTIF = [(0, 79), (0.5, 82), (1.5, 84), (3, 82), (4, 79), (5.5, 77), (6, 75), (8, 74), (9.5, 75), (10, 77)]
-for start in (2 * bar, 6 * bar):
+for start in (2 * bar, 6 * bar, 10 * bar):
     for beat, m in MOTIF:
         add(keys, start + beat * BEAT, 1.6, bell(hz(m)), 0.045)
 # vinyl crackle + hiss

@@ -10,8 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/BolgarMaxym97/claude-code-desk-clock/host/internal/clock"
 )
 
 type got struct {
@@ -33,6 +36,10 @@ func build(t *testing.T) string {
 func fakeClock(t *testing.T) (*httptest.Server, chan got) {
 	ch := make(chan got, 10)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" { // settings reads (alert levels job): no alerts token on this clock
+			w.Write([]byte(`{"region":"","atok":""}`))
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		var m map[string]any
 		json.Unmarshal(b, &m)
@@ -133,5 +140,51 @@ func TestStatuslinePassesOriginalOutputAndForwardsLimits(t *testing.T) {
 	case g := <-ch:
 		t.Fatal("not throttled", g)
 	case <-time.After(700 * time.Millisecond):
+	}
+}
+
+func TestHealthLine(t *testing.T) {
+	st := clock.Status{RSSI: -83, Uptime: 3700, Heap: 25000, HeapMin: 21000, Reset: "Power On", WxCode: 401, Alert: "unknown", AlCode: -1}
+	got := health(st)
+	for _, want := range []string{"-83 dBm (weak)", "up 1h2m0s", "24 KB free (lowest 20 KB)", "last restart: power on",
+		"weather: key rejected (401)", "alerts: no answer for 5+ min (no connection)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("health() = %q, missing %q", got, want)
+		}
+	}
+	if h := health(clock.Status{RSSI: -60, WxCode: 200}); strings.Contains(h, "weather") || !strings.Contains(h, "(good)") {
+		t.Errorf("healthy clock: %q", h)
+	}
+}
+
+func TestPrefValues(t *testing.T) {
+	for in, want := range map[string]string{"23-7": "23-7", "off": "off", "07-1": "7-1"} {
+		if got, err := nightValue(in); err != nil || got != want {
+			t.Errorf("nightValue(%q) = %q, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"24-7", "5-5", "x"} {
+		if _, err := nightValue(bad); err == nil {
+			t.Errorf("nightValue(%q) accepted", bad)
+		}
+	}
+	if got, _ := brightValue("60"); got != "60/60" {
+		t.Errorf("brightValue(60) = %q", got)
+	}
+	if _, err := brightValue("80/2"); err == nil {
+		t.Error("brightness 2% accepted")
+	}
+	if got, _ := faceValue("pixel"); got != "2" {
+		t.Errorf("faceValue(pixel) = %q", got)
+	}
+	now := time.Unix(1000, 0)
+	if got, _ := pinValue("coffee", "2h", now); got != "coffee,8200" {
+		t.Errorf("pinValue 2h = %q", got)
+	}
+	if got, _ := pinValue("coffee", "always", now); got != "coffee,0" {
+		t.Errorf("pinValue always = %q", got)
+	}
+	if _, err := pinValue("coffee", "10s", now); err == nil {
+		t.Error("10s accepted")
 	}
 }

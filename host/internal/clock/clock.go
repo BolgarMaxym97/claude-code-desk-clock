@@ -33,6 +33,14 @@ type Status struct {
 	Weather  string `json:"weather"`
 	Alerts   string `json:"alerts"`
 	Alert    string `json:"alert"`
+	RSSI     int    `json:"rssi"`
+	HeapMin  int    `json:"heapmin"`
+	MaxBlock int    `json:"maxblock"`
+	Reset    string `json:"reset"`
+	Safe     bool   `json:"safe"`
+	WxCode   int    `json:"wx_code"`
+	AlCode   int    `json:"alert_code"`
+	FcCode   int    `json:"fc_code"`
 }
 
 // Post sends JSON with the token; any non-2xx is an error.
@@ -225,4 +233,22 @@ func scan(prefixes []string, timeout time.Duration) []string {
 	}
 	wg.Wait()
 	return found
+}
+
+// GetJSON reads an authorized GET endpoint into out.
+func GetJSON(url, token, path string, out any, timeout time.Duration) error {
+	req, err := http.NewRequest("GET", strings.TrimRight(url, "/")+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Clock-Token", token)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return &HTTPError{resp.StatusCode}
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(out)
 }

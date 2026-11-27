@@ -4,6 +4,8 @@
 #include <set>
 #include <string>
 #include "scene.h"
+#include "scenetitles.h"
+#include "i18n.h"
 #include "model.h"
 
 void setUp() {}
@@ -180,6 +182,30 @@ void test_season_layer_is_still_at_rest_and_inside_the_stage() {
     }
 }
 
+void test_every_idle_scene_has_a_title_and_can_be_pinned() {
+    for (int i = 0; i < sceneCount(); i++) {
+        Scene sc = sceneAt(i);
+        if (sc.kind == SceneKind::Work) {
+            TEST_ASSERT_EQUAL(-1, pinnedScene((std::string(sc.name) + ",0").c_str(), 1000));  // work scenes: not pinnable
+            continue;
+        }
+        setLang(Lang::En);
+        std::string en = sceneTitle(sc.name);
+        setLang(Lang::Uk);
+        std::string uk = sceneTitle(sc.name);
+        TEST_ASSERT_TRUE_MESSAGE(en != sc.name && uk != sc.name && en != uk, sc.name);
+        TEST_ASSERT_TRUE_MESSAGE((en + uk).find_first_of("\"\\") == std::string::npos, sc.name);  // JSON-safe as is
+        TEST_ASSERT_EQUAL(i, pinnedScene((std::string(sc.name) + ",0").c_str(), 1000));
+    }
+    setLang(Lang::En);
+    TEST_ASSERT_EQUAL(sceneIndexByName("coffee"), pinnedScene("coffee,2000", 1999));
+    TEST_ASSERT_EQUAL(-1, pinnedScene("coffee,2000", 2000));  // time is up
+    TEST_ASSERT_EQUAL(-1, pinnedScene("coffee,2000", 0));     // clock not synced: a timed pin waits
+    TEST_ASSERT_EQUAL(sceneIndexByName("coffee"), pinnedScene("coffee,0", 0));  // "always" needs no clock
+    TEST_ASSERT_EQUAL(-1, pinnedScene("nope,0", 1000));
+    TEST_ASSERT_EQUAL(-1, pinnedScene("", 1000));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_orthodox_easter);
@@ -190,5 +216,6 @@ int main() {
     RUN_TEST(test_work_scene_by_state_and_tool);
     RUN_TEST(test_work_scene_priorities);
     RUN_TEST(test_season_layer_is_still_at_rest_and_inside_the_stage);
+    RUN_TEST(test_every_idle_scene_has_a_title_and_can_be_pinned);
     return UNITY_END();
 }

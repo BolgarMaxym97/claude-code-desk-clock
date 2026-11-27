@@ -1,4 +1,5 @@
 #include "device.h"
+#include "scene.h"
 #include "config.h"
 #include "settings.h"
 #include "store.h"
@@ -68,6 +69,34 @@ static bool setField(std::string &f, const String &v, bool (*valid)(const std::s
 bool deviceSetOwm(const String &k) { return setField(cur.owm, k, validOwmKey); }
 bool deviceSetLoc(const String &l) { return setField(cur.loc, l, validLoc); }
 bool deviceSetRegion(const String &r) { return setField(cur.region, r, validRegion); }
+static bool okNight(const std::string &v) { int a, b; return parseNight(v, a, b); }
+static bool okBright(const std::string &v) { int a, b; return parseBright(v, a, b); }
+static bool okPin(const std::string &v) {  // an existing idle scene (not a work screen) or "" (none)
+    std::string n;
+    uint32_t u;
+    if (!parsePin(v, n, u)) return false;
+    if (n.empty()) return true;
+    int i = sceneIndexByName(n.c_str());
+    return i >= 0 && sceneAt(i).kind != SceneKind::Work;
+}
+bool deviceSetNight(const String &v) { return setField(cur.night, v, okNight); }
+bool deviceSetBright(const String &v) { return setField(cur.bright, v, okBright); }
+bool deviceSetFace(const String &v) { return setField(cur.face, v, validFace); }
+bool deviceSetPin(const String &v) { return setField(cur.pin, v, okPin); }
+bool deviceSetAnim(const String &v) { return setField(cur.anim, v, validAnim); }
+bool deviceSetAlertsToken(const String &v) { return setField(cur.atok, v, validAlertsToken); }
+const char *deviceAnim() { return cur.anim.c_str(); }
+const char *deviceAlertsToken() { return cur.atok.c_str(); }
+void deviceNight(int &from, int &to) { if (!parseNight(cur.night, from, to)) parseNight("", from, to); }
+void deviceBright(int &day, int &night) { if (!parseBright(cur.bright, day, night)) parseBright("", day, night); }
+int deviceFace() { return cur.face.empty() ? 0 : cur.face[0] - '0'; }
+const char *devicePin() { return cur.pin.c_str(); }
+const char *deviceWeek() { return cur.week.c_str(); }
+void deviceSaveWeek(const String &v) {
+    if (cur.week == v.c_str() || !validWeek(v.c_str())) return;
+    cur.week = v.c_str();
+    saved = storeSaveSettings(cur);
+}
 const char *deviceOwm() { return cur.owm.c_str(); }
 const char *deviceLoc() { return cur.loc.c_str(); }
 const char *deviceRegion() { return cur.region.c_str(); }

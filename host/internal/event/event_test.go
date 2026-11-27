@@ -30,7 +30,17 @@ func TestHookEvents(t *testing.T) {
 		{in("PreToolUse", map[string]any{"tool_name": "WebSearch", "tool_input": map[string]any{"query": "esp8266 ota"}}), map[string]string{"target": "esp8266 ota"}},
 		{in("Notification", map[string]any{"notification_type": "permission_prompt"}), map[string]string{"kind": "permission"}},
 		{in("Notification", map[string]any{"notification_type": "idle_prompt"}), map[string]string{"kind": "idle"}},
+		// an MCP server asks the user something: the clock must show that Claude waits for you
+		{in("Notification", map[string]any{"notification_type": "elicitation_dialog"}), map[string]string{"kind": "permission"}},
+		// MCP tools: the server's name instead of the tool input
+		{in("PreToolUse", map[string]any{"tool_name": "mcp__clickup__clickup_create_task", "tool_input": map[string]any{"name": "secret plan", "description": "x"}}), map[string]string{"target": "clickup"}},
+		{in("PreToolUse", map[string]any{"tool_name": "mcp__claude_ai_Google_Drive__search_files", "tool_input": map[string]any{"query": "q"}}), map[string]string{"target": "Google Drive"}},
+		{in("PreToolUse", map[string]any{"tool_name": "mcp__plugin_figma_figma__use_figma"}), map[string]string{"target": "figma"}},
 		{in("SessionEnd", nil), map[string]string{"event": "SessionEnd", "session": "s-1"}},
+		// usage limit: the turn ends with a rate_limit error (field name differs between Claude Code versions)
+		{in("StopFailure", map[string]any{"error": "rate_limit"}), map[string]string{"event": "StopFailure", "kind": "limit"}},
+		{in("StopFailure", map[string]any{"error_type": "rate_limit"}), map[string]string{"kind": "limit"}},
+		{in("StopFailure", map[string]any{"error": "server_error"}), map[string]string{"kind": ""}},
 	}
 	for _, c := range cases {
 		e, ok := FromHook(c.stdin, "")
@@ -83,5 +93,13 @@ func TestLimits(t *testing.T) {
 	}
 	if _, ok := Limits([]byte(`{"session_id":"s"}`)); ok {
 		t.Fatal("no limits -> nothing to send")
+	}
+	b, ok = Limits([]byte(`{"session_id":"abc","context_window":{"used_percentage":41.6},"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":5}}}`))
+	if !ok || string(b) != `{"h5":{"pct":10,"resets_at":5},"d7":{"pct":0,"resets_at":0},"ctx":{"session":"abc","pct":42}}` {
+		t.Fatalf("with context: %v %s", ok, b)
+	}
+	b, ok = Limits([]byte(`{"session_id":"abc","context_window":{"used_percentage":12}}`))
+	if !ok || string(b) != `{"ctx":{"session":"abc","pct":12}}` {
+		t.Fatalf("API key user, context only: %v %s", ok, b)
 	}
 }

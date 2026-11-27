@@ -21,7 +21,16 @@ int textWidth(const uint8_t *font, const String &s) {
 void drawTopBar(const String &left, int busy, int total, uint16_t dotCol, uint16_t mark, const String &markText) {
     tft.fillRect(lay::TOP_L - 2, 0, lay::TOP_R - lay::TOP_L + 4, lay::CHIP_Y - 1, col::BG);
     text(F_TOP, left, lay::TOP_L, lay::TOPROW_BASE, col::INK, col::BG, L_BASELINE);
-    if (mark) text(F_TOP, markText, lay::TOP_L + textWidth(F_TOP, left) + 8, lay::TOPROW_BASE, mark, col::BG, L_BASELINE);
+    if (mark) {  // a filled pill after the date: "!" on red / amber (alert), minutes on blue (meeting soon)
+        int x = lay::TOP_L + textWidth(F_TOP, left) + 8, w = textWidth(F_TOP, markText) + 12, h = 18;
+        if (w < h) w = h;
+        int y = lay::TOPROW_BASE - 14;
+        tft.fillRect(x + 2, y, w - 4, h, mark);
+        tft.fillRect(x + 1, y + 1, w - 2, h - 2, mark);
+        tft.fillRect(x, y + 2, w, h - 4, mark);
+        uint16_t fg = mark == col::AMBER || mark == col::YELLOW ? col::BG : col::INK;
+        text(F_TOP, markText, x + w / 2, lay::TOPROW_BASE, fg, mark, C_BASELINE, false);
+    }
     SessionDots d = sessionDots(busy, total);
     int x = lay::TOP_R;
     if (d.more > 0) {  // "+3" after the dots

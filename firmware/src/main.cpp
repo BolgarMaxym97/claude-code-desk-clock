@@ -11,6 +11,7 @@
 #include "model.h"
 #include "net.h"
 #include "portal.h"
+#include "webui.h"
 #include "store.h"
 #include "wifisetup.h"
 #include "panel.h"
@@ -21,7 +22,8 @@ static ESP8266WebServer server(80);
 static Model model;
 static uint32_t lastFrame = 0, lastTick = 0, tick = 0;
 static bool stableMarked = false;
-bool safeBoot = false;  // crash-loop safe mode: flash records read-only (no erase/write); OTA still works
+bool safeBoot = false;          // crash-loop safe mode: flash records read-only, no outside data; OTA still works
+uint32_t heapMin = UINT32_MAX;  // lowest free heap seen (stability check in /status)
 
 // Crash-loop guard. RTC user memory survives resets (not power loss). Slot 64 (byte 256) is clear of the
 // OTA bootloader command at the start of that memory.
@@ -68,6 +70,7 @@ static void restoreToday() {
     if (r.magic == TODAY_MAGIC && r.check == todayCheck(r.t)) t = r.t;        // warm restart: the newest
     else if (parseToday(deviceToday(), d, b, a, c)) t = TodaySnap{d, b, a, c};  // after power loss
     infoState().restore(t);
+    infoState().week().decode(deviceWeek());
 }
 
 static void feedToday(const LocalTime &lt, uint32_t now) {
@@ -81,6 +84,9 @@ static void feedToday(const LocalTime &lt, uint32_t now) {
     if (model.lastDoneAtMs() != lastDone) { lastDone = model.lastDoneAtMs(); in.onAnswer(day); }
     for (; lastCommits < model.commitCount(); lastCommits++) in.onCommit(day);
     TodaySnap t = in.today();
+    int32_t dayNum = daysFromCivil(lt.year, lt.month, lt.day);
+    in.setDay(dayNum, lt.wday);
+    in.week().set(dayNum, t.busyMs, t.answers, t.commits);
     if (memcmp(&t, &rtc, sizeof t)) {
         rtc = t;
         RtcToday r{TODAY_MAGIC, t, todayCheck(t)};
@@ -91,7 +97,15 @@ static void feedToday(const LocalTime &lt, uint32_t now) {
         char b[48];
         snprintf(b, sizeof b, "%d,%u,%d,%d", int(t.day), unsigned(t.busyMs), int(t.answers), int(t.commits));
         deviceSaveToday(b);  // writes only when it changed
+        deviceSaveWeek(in.week().encode().c_str());
     }
+}
+
+// A timed pinned scene whose time is up goes back to random scenes (cleared once, one flash write).
+static void expirePin(const LocalTime &lt, time_t epoch) {
+    std::string name;
+    uint32_t until;
+    if (lt.synced && parsePin(devicePin(), name, until) && until && uint32_t(epoch) >= until) deviceSetPin("");
 }
 
 void setup() {
@@ -107,6 +121,7 @@ void setup() {
     netBegin();
     apiBegin(server, model);
     portalBegin(server);
+    webuiBegin(server);
     server.begin();
 }
 
@@ -115,13 +130,20 @@ void loop() {
     uint32_t now = millis();
     netTick(now);
     fetchTick(now);
-    model.setAlert(infoState().alert(now) != AlertLevel::None);
+    model.setAlert(isAlert(infoState().alert(now)));
     if (!stableMarked && now > 60000) markStable();
     time_t epoch;
     LocalTime lt = localNow(epoch);
     if (now - lastTick >= 1000) {
         lastTick = now;
         model.tick(now);
+        int a, b;
+        deviceNight(a, b);
+        model.setNight(a, b);
+        deviceBright(a, b);
+        model.setBrightness(a, b);
+        expirePin(lt, epoch);
+        heapMin = min<uint32_t>(heapMin, ESP.getFreeHeap());
         feedToday(lt, now);
     }
     bool frame = now - lastFrame >= FRAME_MS;

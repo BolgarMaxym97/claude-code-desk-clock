@@ -6,7 +6,7 @@
 
 enum class Ev {
     SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure,
-    SubagentStart, SubagentStop, PreCompact, NotifyPermission, NotifyIdle,
+    SubagentStart, SubagentStop, PreCompact, NotifyPermission, NotifyIdle, LimitHit,
     Stop, StopFailure, SessionEnd, Unknown
 };
 
@@ -36,6 +36,7 @@ struct ClaudeSession {
     uint32_t toolMs = 0;    // when the current tool started (long Bash -> hourglass)
     int edits = 0;          // Edit/Write calls since the last prompt (many -> paper pile)
     bool hasPrompt = false;
+    int8_t ctx = -1;        // context window used, % (statusline), -1 unknown
 };
 
 // hookName: Claude Code hook event name; kind: "permission" | "idle" | "" (Notification only)
@@ -69,6 +70,11 @@ int gaugeStep(int shown, int target);
 struct SessionDots { int shown, filled, more; };
 SessionDots sessionDots(int busy, int total);
 inline bool showResetTimer(int pct) { return pct >= 70; }
+// Time from the computer (sent with events) when NTP can't be reached (networks that block it): only while the
+// clock has no time at all, and only a plausible value. NTP still corrects it later.
+inline bool takeHostTime(uint32_t clockEpoch, uint32_t hostEpoch) { return clockEpoch < 1600000000u && hostEpoch > 1700000000u; }
+// Context bar colour: 0 normal, 1 amber (>= 80 %), 2 red + "compact soon" (>= 90 %).
+inline int contextLevel(int pct) { return pct >= 90 ? 2 : pct >= 80 ? 1 : 0; }
 // How much of the limit window has passed, 0..100 (-1: reset time unknown) -> white pace mark on the gauge.
 int pacePercent(uint32_t resetsAt, uint32_t nowEpoch, uint32_t windowSec);
 
@@ -95,7 +101,8 @@ constexpr uint32_t LIMITS_STALE_MS = 10u * 60u * 1000u;
 constexpr uint8_t BRIGHT_DAY = 80, BRIGHT_NIGHT = 20;
 constexpr int NIGHT_FROM_H = 23, NIGHT_TO_H = 7;
 
-bool isNight(const LocalTime &t);
+// Sleep hours [from, to) wrapping midnight; from == to: never.
+bool isNight(const LocalTime &t, int from = NIGHT_FROM_H, int to = NIGHT_TO_H);
 
 // Claude is actively doing something in this session (drives the "working" screens).
 bool isWorking(const ClaudeSession &s);
@@ -125,13 +132,21 @@ public:
     View view(uint32_t nowMs, const LocalTime &t) const;
 
     void onLimits(int h5pct, uint32_t h5reset, int d7pct, uint32_t d7reset, uint32_t nowMs);
+    void onContext(const std::string &session, int pct);
+    // User display prefs (settings record): sleep hours and brightness %.
+    void setNight(int from, int to) { nightFrom_ = from; nightTo_ = to; }
+    void setBrightness(int day, int night) { brightDay_ = uint8_t(day); brightNight_ = uint8_t(night); }  // statusline: context window used by that session
     const Limit &limit5h() const { return h5_; }
     const Limit &limit7d() const { return d7_; }
     bool hasLimits() const { return hasLimits_; }
+    // The window shown on the limit screen: the fuller one (the one that ran out).
+    const Limit &limitShown() const { return h5_.pct >= d7_.pct ? h5_ : d7_; }
     void setAlert(bool on) { alert_ = on; }  // air-raid alert: wakes the clock (dimmed at night)
     bool limitsStale(uint32_t nowMs) const { return !hasLimits_ || nowMs - limitsRxMs_ > LIMITS_STALE_MS; }
 
 private:
+    int nightFrom_ = NIGHT_FROM_H, nightTo_ = NIGHT_TO_H;
+    uint8_t brightDay_ = BRIGHT_DAY, brightNight_ = BRIGHT_NIGHT;
     ClaudeSession *findMut(const std::string &id);
     ClaudeSession &create(const std::string &id, uint32_t nowMs);
     std::vector<ClaudeSession> sessions_;
@@ -144,5 +159,6 @@ private:
     Limit h5_, d7_;
     bool hasLimits_ = false;
     bool alert_ = false;
+    bool limitHit_ = false;  // a turn ended on the usage limit: limit screen until Claude works again or it resets
     uint32_t limitsRxMs_ = 0;
 };

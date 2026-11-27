@@ -32,6 +32,7 @@ constexpr uint16_t MUTED = rgb565(0x70, 0x60, 0x48);
 constexpr uint16_t DIM = rgb565(0x58, 0x4A, 0x36);
 constexpr uint16_t CLAY = rgb565(0xD8, 0x40, 0x00);
 constexpr uint16_t AMBER = rgb565(0xF0, 0xA0, 0x00);
+constexpr uint16_t YELLOW = rgb565(0xE8, 0xC0, 0x20);  // alert threat (yellow level)
 constexpr uint16_t RED = rgb565(0xC8, 0x18, 0x18);
 constexpr uint16_t PINK = rgb565(0xE8, 0x40, 0x30);
 constexpr uint16_t GREEN = rgb565(0x50, 0xC0, 0x20);
@@ -70,7 +71,7 @@ constexpr int STAGE_Y = 80, STAGE_H = 70;           // clock: idle mascot stage 
 constexpr int STAGE_SHOW_H = 84;                    // 70 * 1.2
 constexpr int INFO_X = CL + 2, INFO_W = CR - CL - 4, INFO_Y = 170, INFO_H = 42;  // info card under the mascot
 constexpr int INFO_DOTS_Y = 226;                    // rotation dots, between the two reset timers
-constexpr int INFO_TEXT_DX = 36, INFO_PAD_R = 6;     // card: 24 px icon at x+8, text from x+36 to the right edge - 6
+constexpr int INFO_TEXT_DX = 36, INFO_PAD_R = 2;     // card: 24 px icon at x+8, text from x+36 to the right edge - 6
 constexpr int SLEEP_TIME_Y = 40, SLEEP_DATE_Y = 120, SLEEP_CLEAR_TOP = 30, SLEEP_CLEAR_BOTTOM = 140;
 constexpr int SLEEP_STAGE_Y = 134, SLEEP_SPRITE_Y = 156;
 constexpr int YEAR_Y = 172, YEAR_CLEAR_H = 40;      // New Year midnight banner (clock screen)
